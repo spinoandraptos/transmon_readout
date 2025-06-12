@@ -1,0 +1,18 @@
+#!/bin/bash 
+  
+#PBS -P Transmon_Readout  
+#PBS -q parallel24 
+#PBS -l select=1:ncpus=24:mpiprocs=24:mem=160GB 
+#PBS -j oe 
+#PBS -N Heterodyne_Simulation 
+###  -N Job_Name: set filename for standard output/error message.
+
+cd $PBS_O_WORKDIR;   ## This line is needed, do not modify. 
+
+##--- Put your exec/application commands below ---  
+source /app1/ebenv Python-3.10.4
+
+python3 HeterodyneSimulationHPC.py
+exit $?
+
+##--- END HERE --- 
