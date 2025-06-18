@@ -18,8 +18,8 @@ wq = 5.092 * 2 * np.pi      # Qubit frequency (5.092 GHz)[from reference]
 delta = abs(wr - wq)        # Detuning between qubit and resonator (1.97 GHz)[from reference]
 k = 0.00535 * 2 * np.pi     # Resonator decay rate (5.35 MHz)[from reference]
 g = 0.1029 * 2 * np.pi      # Coupling strength (102.9 MHz)[from reference]
-gamma_1 = 0.001 * 2 * np.pi   # Qubit decay (1 MHz) [self-defined, not from reference]
-gamma_2 = 0.001 * 2 * np.pi   # Qubit dephase (1 MHz) [self-defined, not from reference]
+gamma_1 = 0   # Qubit decay (1 MHz) [self-defined, not from reference]
+gamma_2 = 0   # Qubit dephase (1 MHz) [self-defined, not from reference]
 
 wr_d = wr - g**2 / delta    # Dressed resonator frequency (9.9997 GHz)
 wq_d = wq + g**2 / delta    # Dressed qubit frequency (5.0003 GHz)
@@ -151,7 +151,7 @@ plt.ylabel("Signal (a.u.)")
 plt.title("Heterodyne Measurement Record")
 plt.legend()
 plt.grid(True)
-plt.savefig("CLEAR_Heterodyne_3000.png")  # Save to file
+plt.savefig("CLEAR_Heterodyne_3000_ideal_qubit.png")  # Save to file
 
 I_g = list()
 Q_g = list()
@@ -214,7 +214,7 @@ sigma2 = 0.5 * (np.var(proj_g) + np.var(proj_e))
 snr = (np.linalg.norm(mu_e - mu_g) ** 2) / sigma2
 
 figures = {"fidelity": fidelity, "SNR": snr}
-with open("CLEAR_figures.json", "w") as f:
+with open("CLEAR_figures_ideal_qubit.json", "w") as f:
     json.dump(figures, f)
 
 plt.figure(figsize=(6, 6))
@@ -229,7 +229,7 @@ plt.legend()
 plt.grid(True)
 plt.ylim(min(Q_g + Q_e) - 5,max(Q_g + Q_e) + 5)
 plt.xlim(min(I_g + I_e) - 5,max(I_g + I_e) + 5)
-plt.savefig("CLEAR_IQ_3000.png")  # Save to file
+plt.savefig("CLEAR_IQ_3000_ideal_qubit.png")  # Save to file
 
 # Simulate a single heterodyne measurement trajectory
 result_g = smesolve(
@@ -273,7 +273,7 @@ plt.ylabel("Signal (a.u.)")
 plt.title("Heterodyne Measurement Record")
 plt.legend()
 plt.grid(True)
-plt.savefig("Rect_Heterodyne_3000.png")  # Save to file
+plt.savefig("Rect_Heterodyne_3000_ideal_qubit.png")  # Save to file
 
 I_g = list()
 Q_g = list()
@@ -336,7 +336,7 @@ sigma2 = 0.5 * (np.var(proj_g) + np.var(proj_e))
 snr = (np.linalg.norm(mu_e - mu_g) ** 2) / sigma2
 
 figures = {"fidelity": fidelity, "SNR": snr}
-with open("Rect_figures.json", "w") as f:
+with open("Rect_figures_ideal_qubit.json", "w") as f:
     json.dump(figures, f)
 
 plt.figure(figsize=(6, 6))
@@ -351,7 +351,7 @@ plt.legend()
 plt.grid(True)
 plt.ylim(min(Q_g + Q_e) - 5,max(Q_g + Q_e) + 5)
 plt.xlim(min(I_g + I_e) - 5,max(I_g + I_e) + 5)
-plt.savefig("Rect_IQ_3000.png")  # Save to file
+plt.savefig("Rect_IQ_3000_ideal_qubit.png")  # Save to file
 
 plt.close()
 
