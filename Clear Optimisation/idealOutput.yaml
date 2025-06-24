@@ -1,0 +1,81 @@
+- !<Readout>
+  name: rr
+  int_freq: 5.000000E+07
+  lo_name: lo_rr
+  mixer_offsets:
+    I: 0.0
+    Q: 0.0
+    G: 0.17265625
+    P: 0.03281250000000001
+    out: -0.020806603064903846
+  operations:
+    rr_constant_pulse: !<ConstantPulse>
+      name: rr_constant_pulse
+      I_ampx: 0.4
+      Q_ampx: 0.0
+      digital_marker: null
+      length: 1000
+      pad: 0
+      total_I_amp: 0.08000000000000002
+      total_length: 1000
+    rr_gaussian_pulse: !<GaussianPulse>
+      name: rr_gaussian_pulse
+      I_ampx: 1.0
+      Q_ampx: 0.0
+      chop: 6
+      digital_marker: null
+      pad: 0
+      sigma: 100
+      total_I_ampx: 0.2
+      total_length: 600
+    rr_readout_pulse: !<ConstantReadoutPulse>
+      name: rr_readout_pulse
+      I_ampx: 0.25
+      Q_ampx: 0.0
+      digital_marker: !<DigitalWaveform>
+        name: ADC_ON
+        samples:
+        - - 1
+          - 0
+      has_optimized_weights: true
+      length: 2000
+      pad: 600
+      threshold: 0.000624145668837496
+      total_I_amp: 0.05
+      total_length: 2600
+      weights: C:\Users\qcrew\project-template\config\weights\20230721_145912_weights.npz
+  ports:
+    I: 3
+    Q: 4
+    out: 1
+  rf_switch: null
+  rf_switch_on: false
+  smearing: 0
+  tof: 272
+
+
+  config = {
+    "waveforms": {
+        "clear_readout_waveform": {
+            "type": "arbitrary",
+            "samples": clear_pulse.tolist()
+        }
+    },
+    "pulses": {
+        "clear_readout_pulse": {
+            "operation": "readout",
+            "length": int(clear_pulse.size),
+            "waveform": "clear_readout_waveform"
+        }
+    },
+    "elements": {
+        "resonator": {
+            "operations": {
+                "readout": "clear_readout_pulse"
+            }
+        }
+    }
+}
+
+with open("clear_readout_config.yaml", "w") as f:
+    yaml.dump(config, f)
