@@ -1,0 +1,12 @@
+population:
+  ringdown1_amp: 0.10088571561378497
+  ringdown1_time: 6.926427731345249e-09
+  ringup1_amp: 0.5
+  ringup1_time: 3.3488977072293057e-08
+reset:
+  ringdown2_amp: -0.2031538886704031
+  ringdown2_time: 2.6414285060475316e-08
+  ringup2_amp: 0.13475775169286835
+  ringup2_time: 1.0169770055190183e-08
+steady-state:
+  drive_amp: 0.3070963324539486

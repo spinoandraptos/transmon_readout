@@ -1,24 +1,21 @@
 # Read in system parameters
+from pathlib import Path
 import yaml
 import re
 import numpy as np
 import warnings
-from ClearSimulationHelper import optimise_pulse, plot_optimal_clear, convert_numpy_types
+from ClearSimulationHelper import optimise_pulse, cross_check_with_square, plot_optimal_clear, convert_numpy_types
 
 # Suppress all warnings
 warnings.filterwarnings("ignore")
 
 MIN_WAVEFORM_VOLTAGE: float = -0.5  # V
 MAX_WAVEFORM_VOLTAGE: float = 0.5
-
-def min_max_scale(value: float, min_value=MIN_WAVEFORM_VOLTAGE, max_value=MAX_WAVEFORM_VOLTAGE) -> float:
-    if value < min_value or value > max_value:
-        raise ValueError(f"Value {value} is out of bounds [{min_value}, {max_value}]")
-    return (value - min_value) / (max_value - min_value)
+IMPROVEMENT_FACTOR: float = 0.25  # Factor to improve the pulse shape 
 
 # Define file paths
-params_filepath = "systemParam"
-clear_filepath = "clearParam"
+params_filepath = str(Path.cwd()) + "/SystemParam.yaml"
+clear_filepath = str(Path.cwd()) + "/ClearParam.yaml"
 params = None
 
 # Function to evaluate expressions with variables in YAML
@@ -34,7 +31,7 @@ def evaluate_expression(expression, variables=None):
 
 
 # Load the YAML file
-with open(f"{params_filepath}.yaml", "r") as file:
+with open(f"{params_filepath}", "r") as file:
     params = yaml.safe_load(file)
 
 if params is None:
@@ -54,28 +51,44 @@ wr = wr_if + wr_lo                                                      # Resona
 wq = wq_if + wq_lo                                                      # Qubit frequency
 delta = abs(wr - wq)                                                    # Detuning between qubit and resonator
 
-# Ideally we do not want a readout exceeding 1000ns
-duration = 1000e-9                                                      # Duration of the simulation       
+# Ideally we do not want a readout exceeding 500ns
+duration = 500e-9                                                      # Duration of the simulation       
 dt = 1e-9                                                               # Sampling time step 
 pulse_start = 50e-9
-pulse_width = 500e-9
+pulse_width = 300e-9
 
-steady_params, reset_params = optimise_pulse(
-    duration, dt, chi, k, pulse_start, pulse_width
-) 
+steady_time_clear, steady_time_square, reset_time_clear, reset_time_square, envelope, photon_0, photon_s = np.inf, 0, np.inf, 0, None, None, None
+steady_params, reset_params, threshold_steady, threshold_reset = None, None, 1e-5, 1e-8
+
+while steady_time_clear > (1-IMPROVEMENT_FACTOR) * steady_time_square or reset_time_clear > (1-IMPROVEMENT_FACTOR) * reset_time_square:
+    # Thresholds for determining if the cavity is steady or reset
+    threshold_steady = 1e-5
+    threshold_reset = 1e-8
+
+    steady_params, reset_params, threshold_steady, threshold_reset = optimise_pulse(
+        duration, dt, chi, k, pulse_start, pulse_width, threshold_steady, threshold_reset
+    ) 
+
+    steady_time_clear, steady_time_square, reset_time_clear, reset_time_square, envelope, photon_0, photon_s = cross_check_with_square(
+        steady_params, reset_params, duration, dt, chi, k, pulse_start, pulse_width, threshold_steady, threshold_reset)
+
+print(f"Steady state time CLEAR: {steady_time_clear/1e-9:.2f} ns")
+print(f"Steady state time square: {steady_time_square/1e-9:.2f} ns")
+print(f"Reset time CLEAR: {reset_time_clear/1e-9:.2f} ns")
+print(f"Reset time square: {reset_time_square/1e-9:.2f} ns")
 
 all_amps = [
-    steady_params[2],  # ringup1_amp
-    steady_params[3],  # ringdown1_amp
-    reset_params[2],   # ringup2_amp
-    reset_params[3],   # ringdown2_amp
-]
+        steady_params[2],  # ringup1_amp
+        steady_params[3],  # ringdown1_amp
+        reset_params[2],   # ringup2_amp
+        reset_params[3],   # ringdown2_amp
+    ]
 
 max_amp = max(abs(a) for a in all_amps)
 scale_factor = 0.5 / max_amp  # So that the largest amp becomes ±0.5
 
 steady_state_params = {
-    'drive_amp': convert_numpy_types(scale_factor * steady_params[4]),  # also scaled!
+    'drive_amp': convert_numpy_types(steady_params[4] * scale_factor),
 }
 
 population_params = {
@@ -98,11 +111,9 @@ data = {
     "reset": clear_params
 }
 
-with open(f"{clear_filepath}.yaml", 'w') as file:
+with open(f"{clear_filepath}", 'w') as file:
     yaml.dump(data, file, default_flow_style=False)
 
-print(f"CLEAR pulse params saved to {clear_filepath}.yaml")
+print(f"CLEAR pulse params saved to {clear_filepath}")
 
-plot_optimal_clear(
-    steady_params, reset_params, duration, dt, chi, k, pulse_start, pulse_width)
-
+plot_optimal_clear(duration, dt, envelope, photon_0, photon_s)
