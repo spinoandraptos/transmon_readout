@@ -5,6 +5,11 @@ import re
 import numpy as np
 import warnings
 from ClearSimulationHelper import optimise_pulse, cross_check_with_square, plot_optimal_clear, convert_numpy_types
+from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap, Tag
+
+ruamel_yaml = YAML()
+ruamel_yaml.indent(mapping=2, sequence=4, offset=2)
 
 # Suppress all warnings
 warnings.filterwarnings("ignore")
@@ -12,6 +17,10 @@ warnings.filterwarnings("ignore")
 MIN_WAVEFORM_VOLTAGE: float = -0.5  # V
 MAX_WAVEFORM_VOLTAGE: float = 0.5
 IMPROVEMENT_FACTOR: float = 0.25  # Factor to improve the pulse shape 
+QUBIT_IDX = 0
+QUBIT_EF_IDX = 1
+READOUT_IDX = 2
+CAVITY_IDX = 3
 
 # Define file paths
 params_filepath = str(Path.cwd()) + "/SystemParam.yaml"
@@ -87,32 +96,39 @@ all_amps = [
 max_amp = max(abs(a) for a in all_amps)
 scale_factor = 0.5 / max_amp  # So that the largest amp becomes ±0.5
 
-steady_state_params = {
-    'drive_amp': convert_numpy_types(steady_params[4] * scale_factor),
-}
+modes = None
+with open("modes.yml") as modes_file:
+    modes = ruamel_yaml.load(modes_file)
 
-population_params = {
-    'ringup1_time': convert_numpy_types(steady_params[0]),
-    'ringdown1_time': convert_numpy_types(steady_params[1]),
-    'ringup1_amp': convert_numpy_types(steady_params[2] * scale_factor),
+rr_readout_pulse = modes[READOUT_IDX]['operations']['rr_readout_pulse']
+
+tag = Tag(handle='!', suffix='<ClearReadoutPulse>', handles={'!': '!'})
+tag.select_transform(False)
+rr_readout_pulse.yaml_set_ctag(tag)
+
+# Add the rest
+rr_readout_pulse.update({
+    'has_optimized_weights': True,
+    'length': 2000,
+    'pad': 600,
+    'threshold': 0.000624145668837496,
+    'total_I_amp': 0.05,
+    'total_length': 2600,
+    'weights': r'C:\Users\qcrew\project-template\config\weights\20230721_145912_weights.npz',
     'ringdown1_amp': convert_numpy_types(steady_params[3] * scale_factor),
-}
-
-clear_params = {
-    'ringup2_time': convert_numpy_types(reset_params[0]),
-    'ringdown2_time': convert_numpy_types(reset_params[1]),
-    'ringup2_amp': convert_numpy_types(reset_params[2] * scale_factor),
+    'ringup1_amp': convert_numpy_types(steady_params[2] * scale_factor),
+    'ringdown1_time': convert_numpy_types(round(steady_params[1]/4e-9)),
+    'ringup1_time': convert_numpy_types(round(steady_params[0]/4e-9)),
     'ringdown2_amp': convert_numpy_types(reset_params[3] * scale_factor),
-}
+    'ringdown2_time': convert_numpy_types(round(reset_params[1]/4e-9)),
+    'ringup2_amp': convert_numpy_types(reset_params[2] * scale_factor),
+    'ringup2_time': convert_numpy_types(round(reset_params[0]/4e-9)),
+    'drive_amp': convert_numpy_types(steady_params[4] * scale_factor),
+    'drive_time': convert_numpy_types(round((pulse_width - steady_params[0] - steady_params[1])/4e-9))
+})
 
-data = {
-    "population": population_params,
-    "steady-state": steady_state_params,
-    "reset": clear_params
-}
-
-with open(f"{clear_filepath}", 'w') as file:
-    yaml.dump(data, file, default_flow_style=False)
+with open(f"{clear_filepath}", 'w') as f:
+    ruamel_yaml.dump(modes, f)
 
 print(f"CLEAR pulse params saved to {clear_filepath}")
 
