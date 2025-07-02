@@ -155,8 +155,8 @@ def optimise_pulse(duration, dt, chi, k, pulse_start, pulse_width, threshold_ste
         return cost
 
     # === Parameter Bounds ===
-    bounds = [(4e-9, 200e-9),       # Ringup time (Minimum QUA resolution is 4ns, 1 cycle)
-            (4e-9, 200e-9),         # Ringdown time (Minimum QUA resolution is 4ns, 1 cycle)
+    bounds = [(4e-9, 100e-9),       # Ringup time (Minimum QUA resolution is 4ns, 1 cycle)
+            (4e-9, 100e-9),         # Ringdown time (Minimum QUA resolution is 4ns, 1 cycle)
             (1e3, 15e3),              # Ringup norm
             (1e3, 15e3),              # Ringdown norm
             (1e3, 15e3)]              # Drive norm
@@ -207,8 +207,8 @@ def optimise_pulse(duration, dt, chi, k, pulse_start, pulse_width, threshold_ste
     optimal_drive = params_steady[4]
 
     # === Parameter Bounds ===
-    bounds = [(4e-9, 200e-9),       # Ringup time (Minimum QUA resolution is 4ns, 1 cycle)
-            (4e-9, 200e-9),         # Ringdown time (Minimum QUA resolution is 4ns, 1 cycle)
+    bounds = [(4e-9, 100e-9),       # Ringup time (Minimum QUA resolution is 4ns, 1 cycle)
+            (4e-9, 100e-9),         # Ringdown time (Minimum QUA resolution is 4ns, 1 cycle)
             (1e3, 15e3),              # Ringup norm
             (-15e3, -1e3),            # Ringdown norm
             ]
@@ -347,12 +347,18 @@ def cross_check_with_square(params_steady, params_reset, duration, dt, chi, k, p
 
     steady_time_clear = find_steady_state_time(tlist=tlist, photon_number=photon_0, pulse_start=pulse_start, pulse_width=pulse_width, threshold=threshold_steady)
     steady_time_square = find_steady_state_time(tlist=tlist, photon_number=photon_s, pulse_start=pulse_start, pulse_width=pulse_width, threshold=threshold_steady)
+    while steady_time_square == np.inf:
+        threshold_steady *= 10
+        steady_time_square = find_steady_state_time(tlist=tlist, photon_number=photon_s, pulse_start=pulse_start, pulse_width=pulse_width, threshold=threshold_steady)
     reset_time_clear = find_cavity_reset_time(tlist=tlist, photon_number=photon_0, pulse_start=pulse_start, pulse_width=pulse_width, threshold=threshold_reset)
     reset_time_square = find_cavity_reset_time(tlist=tlist, photon_number=photon_s, pulse_start=pulse_start, pulse_width=pulse_width, threshold=threshold_reset)
+    while reset_time_square == np.inf:
+        threshold_reset *= 10
+        reset_time_square = find_cavity_reset_time(tlist=tlist, photon_number=photon_s, pulse_start=pulse_start, pulse_width=pulse_width, threshold=threshold_reset)
 
     return steady_time_clear, steady_time_square, reset_time_clear, reset_time_square, envelope, photon_0, photon_s
 
-def plot_optimal_clear(duration, dt, envelope, photon_0, photon_s):
+def plot_optimal_clear(duration, dt, envelope, photon_0, photon_s, env_filepath, photon_filepath):
     tlist = np.arange(0, duration, dt)
     # I and Q components
     I_t = np.real(envelope)
@@ -361,12 +367,13 @@ def plot_optimal_clear(duration, dt, envelope, photon_0, photon_s):
     plt.figure(figsize=(10, 5))
     plt.plot(tlist/1e-9, I_t, label='I(t)', color='blue')
     plt.plot(tlist/1e-9, Q_t, label='Q(t)', color='orange')
-    plt.title("Square Pulse — I and Q Components")
+    plt.title("CLEAR Pulse — I and Q Components")
     plt.xlabel("Time (ns)")
     plt.ylabel("Amplitude")
     plt.legend()
     plt.grid()
-    plt.savefig("optimal_clear_envelope.png")
+    plt.savefig(env_filepath)
+    # plt.show()
 
     plt.figure(figsize=(10, 5))
     plt.plot(tlist/1e-9, photon_0, label='n [CLEAR]')
@@ -377,7 +384,8 @@ def plot_optimal_clear(duration, dt, envelope, photon_0, photon_s):
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.savefig("optimal_clear_photon.png")
+    plt.savefig(photon_filepath)
+    # plt.show()
 
 
 def convert_numpy_types(obj):
