@@ -20,41 +20,32 @@ class ResidualPhoton(Experiment):
         qm_qua.assign(factor, self.detuning * 1e-9)
 
         # Play CLEAR Pulse
+        # self.resonator.play(self.clear_readout_pulse)
         self.resonator.play(self.clear_readout_pulse)
+        qua.align(self.qubit, self.resonator)
 
         # Sweep the time after CLEAR pulse for extracting residual photon number after pulse
-        qua.wait(self.relax_time, self.resonator)
+        qua.wait(self.relax_time, self.qubit, self.resonator)
 
-        # Reset qubit frame for virtual detuning
         qua.reset_frame(self.qubit)
+        self.qubit.play(self.qubit_drive) # pi/2
 
-        # Bring qubit to superposition with pi/2
-        self.qubit.play(self.qubit_drive) 
-
-        # Half wait free evolution virtual phase accumulation
-        qua.wait(self.ramsey_time / 2, self.qubit)
-        
-        # State inversion with pi to negate effect of slow noise 
+        qua.wait(self.time_delay / 2, self.qubit)  # Half wait
         self.qubit.play(self.echo_pulse)
+        qua.wait(self.time_delay / 2, self.qubit)  # Half wait
 
-        # Half wait free evolution virtual phase accumulation
-        qua.wait(self.ramsey_time / 2, self.qubit)
-
-        # Project back to measurement basis with accumulated virtual phase
         qm_qua.assign(self.phase, qm_qua.Cast.mul_fixed_by_int(factor, self.time_delay))
         self.qubit.play(self.qubit_drive, phase=self.phase) # pi/2
         qua.align()
 
-        # Determine excited state population
         self.resonator.measure(
             self.readout_pulse, (self.I, self.Q), ampx=self.ro_ampx, demod_type="dual"
         )
         qua.wait(self.wait_time, self.resonator)
-        if self.plot_single_shot:  # assign state to G or E
-            qm_qua.assign(
-                self.single_shot,
-                qm_qua.Cast.to_fixed(self.I > self.readout_pulse.threshold),
-            )
+        qm_qua.assign(
+            self.single_shot,
+            qm_qua.Cast.to_fixed(self.I > self.readout_pulse.threshold),
+        )
 
 if __name__ == "__main__":
     """ """
@@ -74,9 +65,9 @@ if __name__ == "__main__":
     N.num = 500
 
     # Delay 16 to 30000 ns for free evolution
-    RAMSEY_SWEEP = Sweep(name="ramsey_time", start=16, stop=30_000, step=160, dtype=int)
+    DEL = Sweep(name="time_delay", start=16, stop=30_000, step=160, dtype=int)
 
-    sweeps = [N, RAMSEY_SWEEP]
+    sweeps = [N, DEL]
 
     I.fitfn = "exp_decay_sine"
     I.plot = False
@@ -88,12 +79,12 @@ if __name__ == "__main__":
 
     # Delay 4 to 1000 ns after pulse for residual photon decay
     points = np.linspace(4, 1000, 30)
-    int_points = np.round(points).astype(int)
+    times = np.round(points).astype(int) * 4
 
-    for val in int_points:
-        print(f"Experiment: Residual photons after {val} ns")
+    for relax_time in times:
+        print(f"Experiment: Residual photons after {relax_time/4} ns") 
         parameters = {
-            "relax_time": val,
+            "relax_time": relax_time,
             "wait_time": 500_000,
             "ro_ampx": 1,
             "detuning": 1e6,
@@ -104,7 +95,6 @@ if __name__ == "__main__":
                 buffer=True,
                 stream=True,
             ),
-            "plot_single_shot": False,
             "number_of_echo": 3,
         }
 
