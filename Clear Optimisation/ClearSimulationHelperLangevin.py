@@ -4,6 +4,7 @@ import numpy as np
 from functools import partial
 from scipy.integrate import ode
 import matplotlib.pyplot as plt
+from qutip import *
 
 def b_in_ringup(t, pulse_start, pulse_width, ringup_time, ringdown_time, ringup_amp, ringdown_amp, drive_amp):
     try:
@@ -194,16 +195,27 @@ def cost_func(mode, duration, dt, chi, k, b_in_func, pulse_start, pulse_width, t
 
     return steady_state_time/1e-9
 
-def cost_func_simul(duration, dt, chi, k, pulse_start, pulse_width, threshold_steady, threshold_reset, ringup1_time, ringdown1_time, ringup1_amp, ringdown1_amp, drive_amp, ringup2_time, ringdown2_time, ringup2_amp, ringdown2_amp):
+def cost_func_simul(duration, dt, chi, k, pulse_start, pulse_width, threshold_steady, threshold_reset, drive_amp, ringup1_time, ringdown1_time, ringup1_amp, ringdown1_amp, ringup2_time, ringdown2_time, ringup2_amp, ringdown2_amp):
     tlist = np.arange(0, duration, dt) 
 
     a = run_langevin_simul(1, tlist, dt, chi, k, pulse_start, pulse_width, ringup1_time, ringdown1_time, ringup1_amp, ringdown1_amp, drive_amp, ringup2_time, ringdown2_time, ringup2_amp, ringdown2_amp)
     photon = np.abs(a)**2
     reset_state_time = find_cavity_reset_time(tlist=tlist, photon_number=photon, pulse_start=pulse_start, pulse_width=pulse_width, threshold=threshold_reset)
     steady_state_time = find_steady_state_time(tlist=tlist, photon_number=photon, pulse_start=pulse_start, pulse_width=pulse_width, threshold=threshold_steady)
-    cost  = 0.6 * steady_state_time + 0.4 * reset_state_time
+    cost  = 0.7 * steady_state_time + 0.3 * reset_state_time
     # print(f"Steady time: {steady_state_time/1e-9}")
     # print(f"Reset time: {reset_state_time/1e-9}")
+
+    # plt.figure(figsize=(10, 5))
+    # plt.plot(tlist/1e-9, photon, label='n [CLEAR]')
+    # plt.xlabel("Time (ns)")
+    # plt.ylabel("N (arb. units)")
+    # plt.title("Resonator Photon Number (Complex Langevin Equation)")
+    # plt.grid(True)
+    # plt.legend()
+    # plt.tight_layout()
+    # plt.show()
+
 
     return cost/1e-9
 
@@ -247,7 +259,7 @@ def optimise_pulse(duration, dt, chi, k, pulse_start, pulse_width, threshold_ste
     global optimal_drive
 
     N_attempts = 1000  # Number of attempts to find a solution
-    N_explore = 200  # Number of exploration attempts before increasing the threshold
+    N_explore = 100  # Number of exploration attempts before increasing the threshold
     N_jobs = 6
 
     sys_params_rst = [0, duration, dt, chi, k, b_in_ringdown, pulse_start, pulse_width, threshold_reset]
@@ -364,33 +376,34 @@ def optimise_pulse(duration, dt, chi, k, pulse_start, pulse_width, threshold_ste
     return params_steady, params_reset, sys_params_steady[8], sys_params_rst[8]
 
 # Use evolutionary algorithm to optimize the pulse parameters
-def optimise_pulse_simul(duration, dt, chi, k, pulse_start, pulse_width, threshold_steady, threshold_reset):
+def optimise_pulse_simul(duration, dt, chi, k, pulse_start, pulse_width, threshold_steady, threshold_reset, drive_amp, best_ringup_params_so_far, best_ringdown_params_so_far, randomise_steady, randomise_reset):
     global sys_params_CLEAR
-    sys_params_CLEAR = [duration, dt, chi, k, pulse_start, pulse_width, threshold_steady, threshold_reset]
+    sys_params_CLEAR = [duration, dt, chi, k, pulse_start, pulse_width, threshold_steady, threshold_reset, drive_amp]
     cost_fn = ClearCost(sys_params_CLEAR)
+    best_params = best_ringup_params_so_far + best_ringdown_params_so_far
 
     N_attempts = 1000  # Number of attempts to find a solution
     N_explore = 100  # Number of exploration attempts before increasing the threshold
-    N_jobs = 6
+    N_jobs = 10
 
     params_CLEAR = None
 
     # === Parameter Bounds ===
-    bounds = [(100e-9, 400e-9),        # Ringup1 time (Minimum QUA resolution is 4ns, 1 cycle)
-            (100e-9, 400e-9),          # Ringdown1 time (Minimum QUA resolution is 4ns, 1 cycle)
-            (1e3, 15e3),            # Ringup1 norm
-            (1e3, 5e3),             # Ringdown1 norm
-            (1e3, 10e3),            # Drive norm
-            (100e-9, 400e-9),          # Ringup2 time (Minimum QUA resolution is 4ns, 1 cycle)
-            (100e-9, 400e-9),          # Ringdown2 time (Minimum QUA resolution is 4ns, 1 cycle)
-            (1e3, 5e3),             # Ringup2 norm
-            (-15e3, -1e3),          # Ringdown2 norm
+    bounds = [(4e-9, 420e-9),           # Ringup1 time (Minimum QUA resolution is 4ns, 1 cycle)
+            (4e-9, 420e-9),             # Ringdown1 time (Minimum QUA resolution is 4ns, 1 cycle)
+            (1e3, 15e3),                # Ringup1 norm
+            (1e3, 5e3),                 # Ringdown1 norm
+            # (drive_amp, drive_amp),     # Drive norm
+            (4e-9, 420e-9),             # Ringup2 time (Minimum QUA resolution is 4ns, 1 cycle)
+            (4e-9, 420e-9),             # Ringdown2 time (Minimum QUA resolution is 4ns, 1 cycle)
+            (1e3, 5e3),                 # Ringup2 norm
+            (-15e3, -1e3),              # Ringdown2 norm
         ]                           
 
     # Extract separate lower and upper bound lists
     lower_bounds, upper_bounds = zip(*bounds)
 
-    print("=== Optimising Steady State ===")
+    print("=== Optimising CLEAR ===")
     
     counter = 0
     while params_CLEAR is None:
@@ -405,8 +418,38 @@ def optimise_pulse_simul(duration, dt, chi, k, pulse_start, pulse_width, thresho
 
         
         # === Initial Guess and Sigma ===
-        x0 = [random.uniform(low, high) for low, high in bounds]  # Midpoint
         sigmas = [(high - low) * 0.3 for (low, high) in bounds]
+
+        if not best_params:
+            x0 = [random.uniform(low, high) for low, high in bounds]  # Midpoint
+        elif randomise_steady or randomise_reset:
+            dev = [(high - low) * 0.4 for (low, high) in bounds]
+            ringup = [
+                min(max(p + s * random.gauss(0, 1), low), high)
+                for (p, s, (low, high)) in zip(best_ringup_params_so_far, dev[0:4], bounds[0:4])
+            ]
+            ringdown = [
+                min(max(p + s * random.gauss(0, 1), low), high)
+                for (p, s, (low, high)) in zip(best_ringdown_params_so_far, dev[4:8], bounds[4:8])
+            ]
+            if randomise_steady and randomise_reset:
+                x0 = ringup + ringdown
+            elif randomise_steady:
+                # ringup = [random.uniform(low, high) for low, high in bounds[0:4]]
+                x0 = ringup + best_ringdown_params_so_far
+            elif randomise_reset:
+                # ringdown = [random.uniform(low, high) for low, high in bounds[4:8]]
+                x0 = best_ringup_params_so_far + ringdown
+        # elif counter == 0:
+        #     x0 = best_params
+        else:
+            dev = [(high - low) * 0.08 for (low, high) in bounds]
+            x0 = [
+                min(max(p + s * random.gauss(0, 1), low), high)
+                for (p, s, (low, high)) in zip(best_params, dev, bounds)
+            ]
+
+        x0 = [min(max(val, low), high) for val, (low, high) in zip(x0, bounds)]
 
         # === CMA-ES Optimization ===
         es = cma.CMAEvolutionStrategy(
@@ -430,7 +473,7 @@ def optimise_pulse_simul(duration, dt, chi, k, pulse_start, pulse_width, thresho
         params_CLEAR = res.result.xbest
         counter += 1
 
-    print(f"Stabilisation optimal ringup1_time: {params_CLEAR[0]/1e-9} ns, ringdown1_time {params_CLEAR[1]/1e-9} ns, ringup1_norm {params_CLEAR[2]} V, ringdown1_norm {params_CLEAR[3]} V, drive_norm {params_CLEAR[4]} V, ringup2_time: {params_CLEAR[5]/1e-9} ns, ringdown2_time {params_CLEAR[6]/1e-9} ns, ringup2_norm {params_CLEAR[7]} V, ringdown2_norm {params_CLEAR[8]} V, steady_state threshold {sys_params_CLEAR[6]}, reset threshold {sys_params_CLEAR[7]}")
+    print(f"Stabilisation optimal ringup1_time: {params_CLEAR[0]/1e-9} ns, ringdown1_time {params_CLEAR[1]/1e-9} ns, ringup1_norm {params_CLEAR[2]} V, ringdown1_norm {params_CLEAR[3]} V, drive_norm {sys_params_CLEAR[8]} V, ringup2_time: {params_CLEAR[4]/1e-9} ns, ringdown2_time {params_CLEAR[5]/1e-9} ns, ringup2_norm {params_CLEAR[6]} V, ringdown2_norm {params_CLEAR[7]} V, steady_state threshold {sys_params_CLEAR[6]}, reset threshold {sys_params_CLEAR[7]}")
 
     return params_CLEAR, sys_params_CLEAR[6], sys_params_CLEAR[7]
 
@@ -541,17 +584,16 @@ def cross_check_with_square(params_steady, params_reset, duration, dt, chi, k, p
     return steady_time_clear, steady_time_square, reset_time_clear, reset_time_square, envelope, photon_0, photon_s
 
 
-def cross_check_with_square_simul(params_CLEAR, duration, dt, chi, k, pulse_start, pulse_width, threshold_steady, threshold_reset):
+def cross_check_with_square_simul(params_CLEAR, duration, dt, chi, k, pulse_start, pulse_width, threshold_steady, threshold_reset, drive_amp):
     ringup1_amp = params_CLEAR[2]
     ringdown1_amp = params_CLEAR[3]
-    ringup2_amp = params_CLEAR[7]
-    drive_amp = params_CLEAR[4]
-    ringdown2_amp = params_CLEAR[8]
+    ringup2_amp = params_CLEAR[6]
+    ringdown2_amp = params_CLEAR[7]
 
     optimal_ringup1_time = params_CLEAR[0]
     optimal_ringdown1_time = params_CLEAR[1]
-    optimal_ringup2_time = params_CLEAR[5]
-    optimal_ringdown2_time = params_CLEAR[6]
+    optimal_ringup2_time = params_CLEAR[4]
+    optimal_ringdown2_time = params_CLEAR[5]
 
     optimal_ringup1_time = 4e-9 * round(optimal_ringup1_time / 4e-9)  # Ensure ringup time is a multiple of 4ns
     optimal_ringdown1_time = 4e-9 * round(optimal_ringdown1_time / 4e-9)  # Ensure ringdown time is a multiple of 4ns
@@ -675,7 +717,6 @@ def plot_optimal_clear(duration, dt, envelope, photon_0, photon_s, env_filepath,
     plt.savefig(photon_filepath)
     # plt.show()
 
-
 def convert_numpy_types(obj):
     if isinstance(obj, dict):
         return {k: convert_numpy_types(v) for k, v in obj.items()}
@@ -691,3 +732,50 @@ def convert_numpy_types(obj):
         return int(obj)
     else:
         return obj
+    
+def get_photon(drive_amp, duration, dt, chi, k):
+
+    tlist = np.arange(0, duration, dt) 
+
+    def b_in():
+        return drive_amp
+    def langevin(t, a_vec, qubit_state):
+        omega_eff = chi * qubit_state
+        return -1j * omega_eff * a_vec - (k / 2) * a_vec +  1j * np.sqrt(k) * b_in()
+    def run_langevin(qubit_state):
+        solver = ode(langevin)
+        solver.set_integrator('zvode', method='bdf')  # complex-valued ODE solver
+        solver.set_initial_value(0.0+0.0j, tlist[0])
+        solver.set_f_params(qubit_state)
+        a_vals = []
+        for _ in range(len(tlist)):
+            if not solver.successful():
+                print("Integration failed at t =", solver.t)
+                break
+            solver.integrate(solver.t + dt)
+            a_vals.append(solver.y)
+        return np.array(a_vals)
+    # Run for both qubit states
+    a_0 = run_langevin(-1)
+    photon_0 = np.abs(a_0)**2
+    return photon_0[-1][0]
+
+# Binary search for drive amplitude that yields photon number target
+def tune_drive_for_photon(duration, dt, chi, k, target_photon=3.6, lower=0.0,  upper=1e4, tol=1e-3, max_iter=50):
+    for _ in range(max_iter):
+        mid = (lower + upper) / 2
+        photon_val = get_photon(mid, duration, dt, chi, k)
+        # print(f"Drive = {mid:.4f}, Photon = {photon_val:.4f}")
+        if abs(photon_val - target_photon) < tol:
+            return mid
+        elif photon_val < target_photon:
+            lower = mid
+        else:
+            upper = mid
+    raise RuntimeError("Did not converge within max iterations")
+
+
+
+
+
+
