@@ -54,7 +54,7 @@ def calibrate_power(filename):
     slope, intercept, *_ = linregress(amp_valid[:N_fit], delta_f[:N_fit])
     expected = slope * amp_valid + intercept
     residual = np.abs(delta_f - expected)
-    threshold = 1e6  # 1 MHz
+    threshold = 3 * np.std(residual)  # 1 MHz
     idx_exceed = np.where(residual > threshold)[0]
     if len(idx_exceed) > 0:
         max_safe_idx = idx_exceed[0] - 1
@@ -93,7 +93,7 @@ def calibrate_power(filename):
 
 if __name__ == "__main__":
     for filename in os.listdir(data_directory):
-        if filename.endswith(".hdf5"):
+        if filename.endswith("rrJon.hdf5"):
             try:
                 calibrate_power(os.path.join(data_directory, filename))
             except Exception as e:
