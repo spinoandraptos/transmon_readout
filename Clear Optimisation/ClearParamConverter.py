@@ -1,74 +1,135 @@
-from dataclasses import dataclass
+import re
+from pathlib import Path
 
-@dataclass
-class DigitalWaveform:
-    name: str
+RR = 'rrC'
 
-@dataclass
-class ClearPulse:
-    name: str
-    I_ampx: float
-    Q_ampx: float
-    length: int
-    pad: int
-    ringdown1_amp: float
-    ringup1_amp: float
-    ringdown1_time: int
-    ringup1_time: int
-    ringdown2_amp: float
-    ringdown2_time: int
-    ringup2_amp: float
-    ringup2_time: int
-    drive_amp: float
-    drive_time: int
-    digital_marker: DigitalWaveform
+# === USER CONFIGURATION ===
+MAX = 0.5
+MIN = -0.5
 
-# Input parameters
-pulse = ClearPulse(
-    name="rrB_CLEAR_readout_pulse",
-    I_ampx=1.0,
-    Q_ampx=0.0,
-    length=952,
-    pad=648,
-    ringdown1_amp=0.01754149663818579,
-    ringup1_amp=0.15586353877456202,
-    ringdown1_time=100,
-    ringup1_time=76,
-    ringdown2_amp=-0.14260685048630622,
-    ringdown2_time=69,
-    ringup2_amp=0.04002529052650269,
-    ringup2_time=83,
-    drive_amp=0.0432,
-    drive_time=624,
-    digital_marker=DigitalWaveform("ADC_ON")
-)
+# INPUT_FILE = str(Path.cwd()) + f"\\scripts\\CLEAR\\{RR}_ClearParam.txt"         # Path to your edited input file
+# OUTPUT_FILE = str(Path.cwd()) + f"\\scripts\\CLEAR\\{RR}_ClearParam2.txt"    # Where corrected params will be saved
+# MULTIPLY_TIMES = True     # Set True to multiply all *_time fields
 
-# === Scaling Factors ===
-# These come from externally fitted results or optimization
-rescaled_params = {
-    "ringup1_amp": pulse.ringup1_amp,
-    "ringdown1_amp": pulse.ringdown1_amp,
-    "ringup2_amp": pulse.ringup2_amp,
-    "drive_amp": pulse.drive_amp,
-    "ringdown2_amp": pulse.ringdown2_amp,
-}
+# MULTIPLY_AMPS = True
+MULTIPLY_AMPS = False
 
+INPUT_FILE = str(Path.cwd()) + f"\\scripts\\CLEAR\\{RR}_ClearParam2.txt"
+OUTPUT_FILE = INPUT_FILE
+MULTIPLY_TIMES = False     # Set True to multiply all *_time fields
 
-# === New Optimal Times (in seconds) ===
-optimal_times = {
-    "optimal_ringup1_time": pulse.ringup1_time * 1e-9,
-    "optimal_ringdown1_time": pulse.ringdown1_time * 1e-9,
-    "optimal_ringup2_time": pulse.ringup2_time * 1e-9,
-    "optimal_ringdown2_time": pulse.ringdown2_time * 1e-9,
-    "pulse_start": 100e-9,
-    "pulse_width": (pulse.ringup1_time + pulse.ringdown1_time + pulse.drive_time)* 1e-9
-}
+TARGET_TOTAL_TIME = 50 * 64         # Your desired pad + length total time
+TIME_MULTIPLIER = 2     # The factor to multiply times by
+AMP_MULTIPLIER = 1.5     # The factor to multiply amps by
 
-# === Print Final Output ===
-print("\n# === Rescaled Parameters ===")
-for k, v in rescaled_params.items():
-    print(f"{k} = {v}")
+# ==========================
 
-print("\n# === Optimal Times (seconds) ===")
-for k, v in optimal_times.items():
-    print(f"{k} = {v}")
+def parse_params(text):
+    pattern = r"(\w+)\s*=\s*(.*?)(?:,|\n|$)"
+    return dict(re.findall(pattern, text))
+
+def format_value(val):
+    try:
+        fval = float(val)
+        if fval.is_integer():
+            return str(int(fval))
+        return f"{fval:.16g}"
+    except ValueError:
+        return val.strip()
+
+def modify_params(params, target_total_time=None, multiply_times=False, multiply_amps=False, time_multiplier=1.0, amp_multiplier=1.0):
+    changes = []
+
+    # Extract *_time fields
+    time_keys = [k for k in params if k.endswith("_time")]
+    amp_keys = [k for k in params if k.endswith("_amp")]
+    time_values = []
+    amp_values = []
+
+    for k in time_keys:
+        try:
+            val = float(params[k])
+        except ValueError:
+            raise ValueError(f"Invalid number for time field: {k} = {params[k]}")
+
+        if multiply_times:
+            new_val = round(val * time_multiplier)
+            changes.append(f"Multiplied {k}: {val} → {new_val}")
+            params[k] = str(new_val)
+            time_values.append(new_val)
+        else:
+            time_values.append(val)
+
+    for k in amp_keys:
+        try:
+            val = float(params[k])
+        except ValueError:
+            raise ValueError(f"Invalid number for time field: {k} = {params[k]}")
+    
+        if multiply_amps:
+            new_val = val * amp_multiplier
+            if new_val > MAX:
+                new_val = MAX
+            elif new_val < MIN:
+                new_val = MIN
+            changes.append(f"Multiplied {k}: {val} → {new_val}")
+            params[k] = str(new_val)
+            amp_values.append(new_val)
+        else:
+            amp_values.append(val)
+
+    # Recompute length
+    length = int(round(sum(time_values)))
+    old_length = params.get("length")
+    params["length"] = str(length)
+    if str(old_length) != str(length):
+        changes.append(f"Corrected length: {old_length} → {length}")
+
+    # Recompute pad
+    if target_total_time is not None:
+        pad = target_total_time - length
+        pad_reason = f"target_total_time={target_total_time}"
+    else:
+        min_time = int(round(min(time_values)))
+        pad = min(0, -min_time)
+        pad_reason = f"min_time={min_time}"
+
+    old_pad = params.get("pad")
+    if str(old_pad) != str(pad):
+        changes.append(f"Corrected pad: {old_pad} → {pad} ({pad_reason})")
+    params["pad"] = str(pad)
+
+    return params, changes
+
+def write_params(params):
+    lines = []
+    for k, v in params.items():
+        lines.append(f"\t\t\t\t{k} = {format_value(v)},")  # 3 tabs instead of 4 spaces
+    return "\n".join(lines) + "\n"
+
+def main():
+    with open(INPUT_FILE, "r") as f:
+        original_text = f.read()
+
+    params = parse_params(original_text)
+
+    updated_params, change_log = modify_params(
+        params,
+        target_total_time=TARGET_TOTAL_TIME,
+        multiply_times=MULTIPLY_TIMES,
+        multiply_amps=MULTIPLY_AMPS,
+        time_multiplier=TIME_MULTIPLIER,
+        amp_multiplier=AMP_MULTIPLIER
+    )
+
+    new_text = write_params(updated_params)
+
+    with open(OUTPUT_FILE, "w") as f:
+        f.write(new_text)
+
+    print(f"✔ Saved corrected parameters to '{OUTPUT_FILE}':")
+    for change in change_log:
+        print("   -", change)
+
+if __name__ == "__main__":
+    main()
