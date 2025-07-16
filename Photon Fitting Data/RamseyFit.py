@@ -6,36 +6,25 @@ from datetime import datetime
 import os
 
 # To adjust according to experiment
-day ="2025-07-12"
+day ="2025-07-15"
 pulse = "CLEAR"
 # pulse = "rect"
-qubit = "B"
-start_time = datetime.strptime("17-09-00", "%H-%M-%S")
-end_time   = datetime.strptime("17-38-00", "%H-%M-%S")
-tlist = np.round(np.linspace(4, 1000, 30)).astype(int)
+start_time = datetime.strptime("20-47-00", "%H-%M-%S")
+end_time   = datetime.strptime("21-14-00", "%H-%M-%S")
+tlist = np.round(np.linspace(4, 1000, 30)).astype(int) 
 
-data_directory = f"C:\\Users\\admin\\Desktop\\cphase\\data\\{day}"
-CLEAR_directory = "C:\\Users\\admin\Desktop\\cphase\\scripts\\CLEAR"
+data_directory = f"C:\\Users\\qcrew\\Documents\\jon\\cheddar\\data\{day}"
+CLEAR_directory = "C:\\Users\\qcrew\\Documents\\jon\\cheddar\\scripts\\CLEAR"
 
 delta = 1e6 #1MHz virtual detuning
+N0 = 6
+FIT_FRAC = 1.0 # Fraction of points to use for exp fitting (starting from back)
 
 # T2 refers to T2 Echo
 qubit_specs = {
-    "qA": {
-        "chi": 0.64e6,
-        "kappa": 2.273e6,
-        "T2": 21.5e-6
-    },
-    "qB": {
-        "chi": 0.4e6,
-        "kappa": 5.2125e6,
-        "T2": 37e-6,
-    },
-    "qC": {
-        "chi": 0.5e6,
-        "kappa": 6.547e6,
-        "T2": 6.5e-6, 
-    }
+    "chi": 1.05e6,
+    "kappa": 0.170e6,
+    "T2": 26.9e-6
 }
 
 # From CLEAR paper
@@ -61,8 +50,11 @@ def ramsey_model(t, n0, phi0, Gamma2, offset, kappa, delta, chi):
     phase = -(Gamma2 + 1j * delta)* t + 1j * (phi0 - 2 * n0 * chi * tau)
     return 0.5 * (1 - np.imag(np.exp(phase)) + offset)
 
+# --- Exponential decay model ---
+def photon_decay(t, n0, tau):
+    return n0 * np.exp(-t / tau)
 
-def extract_residual_photons(filepath):
+def extract_residual_photons(filepath, count):
 
     base, _ = filepath.rsplit('.', 1)  # split at last dot
     fit_filepath = f"{base}_ramsey_fit.jpeg"
@@ -74,17 +66,21 @@ def extract_residual_photons(filepath):
         p_norm = (p_data_mean - np.min(p_data_mean)) / (np.max(p_data_mean) - np.min(p_data_mean))
 
     # Known constants from separate calibrations
-    chi = qubit_specs[f"q{qubit}"]["chi"]
-    kappa = qubit_specs[f"q{qubit}"]["kappa"]
-    Gamma2 = 1 /qubit_specs[f"q{qubit}"]["T2"]
+    chi = qubit_specs["chi"]
+    kappa = qubit_specs["kappa"]
+    Gamma2 = 1 /qubit_specs["T2"]
+    phi_guess = np.arcsin(2 * [p_norm[0] - 0.5])[0]
+    
+    n0_guess = photon_decay(tlist[count]/1e9, N0, 1/kappa)
+    # print(n0_guess)
 
     # --- First fit: fit to all data initially ---
     popt_init, _ = curve_fit(
         lambda t, n0, phi0, Gamma2, offset: ramsey_model(t, n0, phi0, Gamma2, offset, kappa, delta, chi),
         t_data,
         p_norm,
-        p0=[1.0, 0.0, 1 / qubit_specs[f"q{qubit}"]["T2"], 0.0],
-        bounds=([0, -2*np.pi, 1/300e-6, -1.0], [15, 2*np.pi, 1/1e-6, 1.0])
+        p0=[n0_guess, phi_guess, Gamma2, 0.0],
+        bounds=([0, -2*np.pi, 1/1e-3, -1.0], [N0, 2*np.pi, 1/1e-6, 1.0])
     )
 
     # --- Compute residuals between model and data ---
@@ -98,6 +94,7 @@ def extract_residual_photons(filepath):
     mask = residuals < threshold
     t_filtered = t_data[mask]
     p_filtered = p_norm[mask]
+    # weights = 1/(p_filtered + 0.02)
 
     # --- Final fit after removing outliers ---
     popt, pcov = curve_fit(
@@ -105,7 +102,8 @@ def extract_residual_photons(filepath):
         t_filtered,
         p_filtered,
         p0=popt_init,  # use previous as initial guess
-        bounds=([0, -2*np.pi, 1/300e-6, -1.0], [15, 2*np.pi, 1/1e-6, 1.0])
+        bounds=([0, -2*np.pi, 1/1e-3, -1.0], [N0, 2*np.pi, 1/1e-6, 1.0]),
+        # sigma=weights
     )
 
     n0_fit, phi0_fit, T2_fit, ofs_fit = popt
@@ -157,58 +155,74 @@ if __name__ == "__main__":
             try:
                 timestamp_str = filename.split("_")[0]
                 file_time = datetime.strptime(timestamp_str, "%H-%M-%S")
-                file_entries.append((file_time, filename))
+                if start_time < file_time < end_time:
+                    file_entries.append((file_time, filename))
             except ValueError:
                 continue  # skip files that don't match the format
 
     # Sort by file_time (ascending)
     file_entries.sort()
+    sorted_filenames = [filename for _, filename in file_entries]
+   
 
-    # Process files in order
-    for file_time, filename in file_entries:
-        if start_time <= file_time <= end_time:
-            try:
-                n = extract_residual_photons(os.path.join(data_directory, filename))
-                photon_list.append(n)
-            except Exception as e:
-                print(f"Skipping {filename}: {e}")
-
-        # --- Exponential decay model ---
-    def photon_decay(t, n0, tau):
-        return n0 * np.exp(-t / tau)
-
-    # --- Fit ---
-    popt, pcov = curve_fit(photon_decay, tlist/1e9, photon_list, p0=[photon_list[0], (tlist[-1] - tlist[0]) / 1e9 / 2])
-    n0_fit, tau_fit = popt
-    kappa_fit = 1 / tau_fit
-
-    # --- Plot ---
+    count = 0
+    photon_list = []
+    group_filenames = sorted_filenames
+    for filename in group_filenames:
+        try:
+            full_path = os.path.join(data_directory, filename)
+            n = extract_residual_photons(full_path, count)
+            photon_list.append(n)
+            count += 1
+        except Exception as e:
+            print(f"Skipping {filename}: {e}")
+            continue
+    photon_list = np.array(photon_list)
+    tlist = np.array(tlist)
+    fraction = FIT_FRAC  # fraction of data at tail for fitting
+    start_idx = int(len(tlist) * (1 - fraction))
+    # Use tail data for fitting only
+    t_fit = tlist[start_idx:] / 1e9  # convert to seconds if needed
+    photon_fit = photon_list[start_idx:]
+    # Fit exponential decay to tail data
+    try:
+        popt, pcov = curve_fit(photon_decay, t_fit, photon_fit,
+                              p0=[photon_fit[0], (t_fit[-1] - t_fit[0]) / 2])
+        n0_fit, tau_fit = popt
+        kappa_fit = 1 / tau_fit
+    except Exception as e:
+        print(f"Fit failed: {e}")
+        popt = [np.nan, np.nan]
+    # Calculate residuals over full data
+    residuals = np.abs(photon_list - photon_decay(tlist / 1e9, *popt))
+    threshold = 3 * np.std(residuals)
+    outliers_mask = residuals > threshold
+    # Plot
     plt.figure(figsize=(8, 4))
-    plt.plot(tlist, photon_list, 'bo', label="Data")  # plot in ns
-    plt.plot(tlist, photon_decay(tlist/1e9, *popt), 'r-', label="Fit")
-
-    # Add fitted parameters as text
+    plt.plot(tlist, photon_list, 'bo', label='Data')
+    plt.plot(tlist, photon_decay(tlist / 1e9, *popt), 'r-', label='Fit (extrapolated)')
+    # Highlight outliers on full data
+    plt.plot(tlist[outliers_mask], photon_list[outliers_mask], 'rx', markersize=10, label='Outliers')
+    
+    # Fitted parameters as text
     textstr = (
         f"$n_0$ = {n0_fit:.3f}\n"
         f"$\\tau$ = {tau_fit * 1e6 :.2f} µs\n"
         f"$\\kappa$ = {kappa_fit / 1e6 :.2f} MHz"
     )
-    plt.text(
-        0.95, 0.95,
-        textstr,
-        transform=plt.gca().transAxes,
-        fontsize=12,
-        verticalalignment='top',
-        horizontalalignment='right',
-        bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray')
-    )
+    plt.text(0.95, 0.95, textstr,
+            transform=plt.gca().transAxes,
+            fontsize=12, ha='right', va='top',
+            bbox=dict(facecolor='white', alpha=0.8, edgecolor='gray'))
 
     plt.xlabel("Time (ns)")
     plt.ylabel("Residual Photon Number")
-    plt.title("Photon Decay in Readout Resonator")
+    plt.title(f"Qubit {pulse.upper()} - Photon Decay")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(CLEAR_directory, f"{qubit}_n0_{pulse}.png"), dpi=300)  # save figure with 300 dpi resolution
-    plt.show()
-    
+
+    fig_path = os.path.join(CLEAR_directory, f"qubit_{pulse}_n0.png")
+    plt.savefig(fig_path, dpi=300)
+    plt.close()
+    print(f"Saved plot for qubit {pulse} → {fig_path}")
