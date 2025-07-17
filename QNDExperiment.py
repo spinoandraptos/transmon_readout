@@ -1,5 +1,5 @@
 """ """
-from config.experiment_config import FOLDER, N, FREQ
+from config.experiment_config import FOLDER, N, FREQ, I, Q, SINGLE_SHOT
 from qcore import Experiment, qua, Dataset
 from qm import qua as qm_qua
 
@@ -7,8 +7,11 @@ from qm import qua as qm_qua
 # qubit = f"q{number}"
 # resonator = f"rr{number}"
 
+# --------- To edit according to experiment ------------
 qubit = "qubit"
 resonator = "rr"
+rect_decay_time = 1000
+clear_decay_time = 40
 
 I1 = Dataset(
     name="I1",
@@ -57,8 +60,9 @@ class QNDConst(Experiment):
     def sequence(self):
         # Prepare qubit
         if self.excite_qubit:
-            self.qubit.play(self.qubit_pulse)
-
+          self.qubit.play(self.qubit_pulse)
+          qua.align(self.resonator, self.qubit)
+        
         # First measurement
         self.resonator.measure(self.readout_pulse, (self.I1, self.Q1), demod_type="dual")
        
@@ -83,16 +87,16 @@ class QNDClear(Experiment):
     primary_datasets = ["I1", "Q1", "I2", "Q2", "single_shot_pre", "single_shot_post"]
     
     def sequence(self):
-            
         # Prepare qubit
         if self.excite_qubit:
-            self.qubit.play(self.qubit_pulse)
-
+          self.qubit.play(self.qubit_pulse)
+          qua.align(self.resonator, self.qubit)
+         
         # First measurement
         self.resonator.measure(self.clear_readout_pulse, (self.I1, self.Q1), demod_type="dual")
 
         # Allow resonator to decay to not interfere with readout
-        qua.wait(self.rect_decay_time, self.qubit, self.resonator)
+        qua.wait(self.clear_decay_time, self.qubit, self.resonator)
 
         # Second measurement
         self.resonator.measure(self.clear_readout_pulse, (self.I2, self.Q2), demod_type="dual")
@@ -117,8 +121,8 @@ if __name__ == "__main__":
         "clear_readout_pulse": f"{resonator}_CLEAR_readout_pulse",
     }
     parameters = {
-        "rect_decay_time": 440,
-        "clear_decay_time": 40,
+        "rect_decay_time": rect_decay_time,
+        "clear_decay_time": clear_decay_time,
         "wait_time": 500_000,
         "ro_ampx": 1,
         "excite_qubit": False

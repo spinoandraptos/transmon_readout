@@ -3,13 +3,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 import os
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 # To adjust according to experiment
 day ="2025-07-16"
 
-start_time = datetime.strptime("14-40-30", "%H-%M-%S")
-end_time   = datetime.strptime("14-41-50", "%H-%M-%S")
+start_time = datetime.strptime("15-52-00", "%H-%M-%S")
+end_time   = datetime.strptime("15-54-00", "%H-%M-%S")
 
 # data_directory = r"/home/spinoandraptos/Documents/CQT/Experiments/QND Fitting Data"
 # CLEAR_directory = r"/home/spinoandraptos/Documents/CQT/Experiments/QND Fitting Data"
@@ -27,14 +26,14 @@ def get_QND(label, filepath1, filepath2, ax=None):
         pre2 = f["single_shot_pre"][()]
         post2 = f["single_shot_post"][()]
     
-    pre_flat1 = pre1.flatten()   # shape (20000,)
-    post_flat1 = post1.flatten() # shape (20000,)
-    pre_flat2 = pre2.flatten()   # shape (20000,)
-    post_flat2 = post2.flatten() # shape (20000,)
+    pre_flat1 = pre1.flatten()   
+    post_flat1 = post1.flatten() 
+    pre_flat2 = pre2.flatten()   
+    post_flat2 = post2.flatten() 
 
     pre_combined = np.concatenate([pre_flat1, pre_flat2])
     post_combined = np.concatenate([post_flat1, post_flat2])
-
+  
     #Calculate matches/mismatches
     def get_counts(pre, post):
         total = len(pre)
@@ -101,7 +100,8 @@ if __name__ == "__main__":
             try:
                 timestamp_str = filename.split("_")[0]
                 file_time = datetime.strptime(timestamp_str, "%H-%M-%S")
-                file_entries.append((file_time, filename))
+                if start_time < file_time < end_time:
+                    file_entries.append((file_time, filename))
             except ValueError:
                 continue  # skip files that don't match the format
 
