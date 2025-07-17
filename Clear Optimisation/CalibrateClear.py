@@ -14,10 +14,10 @@ warnings.filterwarnings("ignore")
 # ------------------------ MODIFIABLE PARAMS --------------------------------------
 
 NORM_FACTOR = 1.0 # I_ampx
-MAX_TRIES = 1000
+MAX_TRIES = 10
 CYCLE_LEN = 4
 DIVISION_LEN = 16
-IMPROVEMENT_FACTOR = 0.5
+IMPROVEMENT_FACTOR = 30 # * 100%
 
 RR = 'rr'
 
@@ -28,7 +28,7 @@ drives = {
 duration = 1500e-9                                                            
 dt = 1e-9                                                              
 pulse_start = 0e-9
-pulse_width = 300e-9
+pulse_width = 400e-9
 buffer = 128e-9
 phase = np.pi * 1.75
 
@@ -52,11 +52,15 @@ env_filepath = str(Path.cwd()) + f"\\{RR}_optimal_clear_envelope.png"
 b_out_g_filepath = str(Path.cwd()) + f"\\{RR}_optimal_clear_bout_g.png"
 b_out_e_filepath = str(Path.cwd()) + f"\\{RR}_optimal_clear_bout_e.png"
 diff_filepath = str(Path.cwd()) + f"\\{RR}_optimal_clear_diff.png"
+a_c_g_filepath = str(Path.cwd()) + f"\\{RR}_optimal_clear_a_g.png"
+a_c_e_filepath = str(Path.cwd()) + f"\\{RR}_optimal_clear_a_e.png"
+a_s_g_filepath = str(Path.cwd()) + f"\\{RR}_optimal_const_a_g.png"
+a_s_e_filepath = str(Path.cwd()) + f"\\{RR}_optimal_const_a_e.png"
 
 # ------------------------DO NOT TOUCH THESE UNLESS NEEDED --------------------------------------
 
 MAX_DRIVE = drives[RR]
-integral_s, integral_c, b_out_s_g, b_out_s_e, b_out_c_g, b_out_c_e, diff_s, diff_c, envelope = 0, -np.inf, None, None, None, None, None, None, None
+integral_s, integral_c, b_out_s_g, b_out_s_e, b_out_c_g, b_out_c_e, diff_s, diff_c, envelope, a_c_g, a_c_e, a_s_g, a_s_e = 0, -np.inf, None, None, None, None, None, None, None, None, None, None, None
 CLEAR_params = None, None, None
 
 if __name__ == "__main__":
@@ -124,7 +128,7 @@ if __name__ == "__main__":
             buffer, phase, chi, k, pulse_start, pulse_width, drive_amp, best_ringup_params_so_far, best_ringdown_params_so_far, randomise
         )
         
-        integral_s, integral_c, b_out_s_g, b_out_s_e, b_out_c_g, b_out_c_e, diff_s, diff_c, envelope = cross_check_with_square(
+        integral_s, integral_c, b_out_s_g, b_out_s_e, b_out_c_g, b_out_c_e, diff_s, diff_c, envelope, a_c_g, a_c_e, a_s_g, a_s_e = cross_check_with_square(
             CLEAR_params, buffer, phase, chi, k, pulse_start, pulse_width, drive_amp
         )
         
@@ -213,6 +217,6 @@ if __name__ == "__main__":
     t_span = (0, t_total)
     t_eval = np.linspace(*t_span, 1000)
 
-    plot_optimal_clear(t_eval, envelope, b_out_c_e, b_out_c_g, diff_c, diff_s, env_filepath, b_out_g_filepath, b_out_e_filepath, diff_filepath)
+    plot_optimal_clear(t_eval, envelope, b_out_c_e, b_out_c_g, diff_c, diff_s, a_c_g, a_c_e, a_s_g, a_s_e, env_filepath, b_out_g_filepath, b_out_e_filepath, diff_filepath, a_c_g_filepath, a_c_e_filepath, a_s_g_filepath, a_s_e_filepath)
     print(f"CLEAR pulse figs saved")
 

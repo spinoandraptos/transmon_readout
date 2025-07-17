@@ -77,33 +77,57 @@ def run_langevin(qubit_state, t_span, t_eval, phase, drive, chi, k, pulse_start,
     return np.array(alpha)
 
 
-def cost_func(drive, buffer, phase, chi, k, pulse_start, pulse_width, drive_amp, ringup1_time, ringdown1_time, ringup1_amp, ringdown1_amp, ringup2_time, ringdown2_time, ringup2_amp, ringdown2_amp):
+def cost_func(drive, buffer, phase, chi, k, pulse_start, pulse_width, drive_amp,
+              ringup1_time, ringdown1_time, ringup1_amp, ringdown1_amp,
+              ringup2_time, ringdown2_time, ringup2_amp, ringdown2_amp):
     
     t_drive = ringup1_time + ringdown1_time + pulse_width + ringdown2_time + ringup2_time
     t_total = t_drive + buffer
     t_span = (0, t_total)
     t_eval = np.linspace(*t_span, 1000)
+    dt = t_eval[1] - t_eval[0]
 
-    a_g = run_langevin(0, t_span, t_eval, phase, drive, chi, k, pulse_start, pulse_width, ringup1_time, ringdown1_time, ringup1_amp, ringdown1_amp, drive_amp, ringup2_time, ringdown2_time, ringup2_amp, ringdown2_amp)
-    a_e = run_langevin(1, t_span, t_eval, phase, drive, chi, k, pulse_start, pulse_width, ringup1_time, ringdown1_time, ringup1_amp, ringdown1_amp, drive_amp, ringup2_time, ringdown2_time, ringup2_amp, ringdown2_amp)
+    # Simulate Langevin dynamics
+    a_g = run_langevin(0, t_span, t_eval, phase, drive, chi, k,
+                       pulse_start, pulse_width,
+                       ringup1_time, ringdown1_time, ringup1_amp, ringdown1_amp, drive_amp,
+                       ringup2_time, ringdown2_time, ringup2_amp, ringdown2_amp)
     
-    b_in_vals = np.array([drive(t, pulse_start, pulse_width, ringup1_time, ringdown1_time, ringup1_amp, ringdown1_amp, drive_amp, ringup2_time, ringdown2_time, ringup2_amp, ringdown2_amp, phase) for t in t_eval])
+    a_e = run_langevin(1, t_span, t_eval, phase, drive, chi, k,
+                       pulse_start, pulse_width,
+                       ringup1_time, ringdown1_time, ringup1_amp, ringdown1_amp, drive_amp,
+                       ringup2_time, ringdown2_time, ringup2_amp, ringdown2_amp)
+
+    # Input and output fields
+    b_in_vals = np.array([
+        drive(t, pulse_start, pulse_width,
+              ringup1_time, ringdown1_time, ringup1_amp, ringdown1_amp, drive_amp,
+              ringup2_time, ringdown2_time, ringup2_amp, ringdown2_amp, phase)
+        for t in t_eval
+    ])
+
     b_out_g = b_in_vals + np.sqrt(k) * a_g
     b_out_e = b_in_vals + np.sqrt(k) * a_e
     diff = b_out_e - b_out_g
 
-    dt = t_eval[1] - t_eval[0]
-    integral = np.sum(np.abs(diff)**2) * dt
+    # Regions
+    drive_start = pulse_start + ringup1_time + ringdown1_time
+    drive_end = drive_start + pulse_width
+    ringdown_end = t_drive
 
-    cost  = -integral
+    drive_mask = (t_eval >= drive_start) & (t_eval <= drive_end)
+    ringdown_mask = (t_eval > drive_end) & (t_eval <= ringdown_end)
 
-    plt.figure(figsize=(10, 5))
-    plt.plot(t_eval * 1e9, diff, label='Env Diff)', color='blue')
-    plt.grid(True)
-    plt.title("Envelope difference")
-    plt.tight_layout()
-    plt.savefig('C:\\Users\\qcrew\\Documents\\jon\\cheddar\\scripts\\CLEAR\\env_diff.png')
-    plt.close()
+    # Core terms
+    fidelity_term = np.sum(np.abs(diff)**2) * dt
+    ringup_penalty = ringup1_time + ringdown1_time
+    ringdown_penalty = np.sum(np.abs(a_g[ringdown_mask])**2 + np.abs(a_e[ringdown_mask])**2) * dt
+
+    # Weighted cost
+    # print(f"Fidelity  {-fidelity_term} ")
+    # print(f"Ringup Penalty  {5e9 * ringup_penalty}")
+    # print(f"Ringdown Penalty  {5e5 * ringdown_penalty}")
+    cost = -5 * fidelity_term + 1e9 * ringup_penalty + 1e6 * ringdown_penalty
 
     return cost
 
@@ -132,22 +156,18 @@ def optimise_pulse(buffer, phase, chi, k, pulse_start, pulse_width, drive_amp, b
 
     params_CLEAR = None
 
-    # Get order of magnitude
-    order = int(np.floor(np.log10(abs(drive_amp))))
-    base = 10 ** order
-
     # Define custom ranges
-    above_range = (drive_amp * 1.01, base * 20)   # start just above drive_amp
-    below_range = (base * 0.01, drive_amp * 0.99)    # start from base, end just below drive_amp
+    above_range = (drive_amp * 1.01, drive_amp * 20,)   # start just above drive_amp
+    below_range = (drive_amp * 0.01, drive_amp * 0.99)    # start from base, end just below drive_amp
 
     # Full bounds example
     bounds = [
-        (4e-9, 100e-9),           # Ringup1 time
-        (4e-9, 100e-9),           # Ringdown1 time
+        (4e-9, 50e-9),           # Ringup1 time
+        (4e-9, 50e-9),           # Ringdown1 time
         above_range,              # Ringup1 norm (above drive_amp)
         below_range,              # Ringdown1 norm (below drive_amp)
-        (4e-9, 100e-9),           # Ringup2 time
-        (4e-9, 100e-9),           # Ringdown2 time
+        (4e-9, 50e-9),           # Ringup2 time
+        (4e-9, 50e-9),           # Ringdown2 time
         below_range,              # Ringup2 norm (below drive_amp)
         (-above_range[1], -above_range[0])  # Ringdown2 norm, negative and above -drive_amp
     ]            
@@ -254,63 +274,130 @@ def cross_check_with_square(params_CLEAR, buffer, phase, chi, k, pulse_start, pu
     b_out_c_e = b_in_c_vals + np.sqrt(k) * a_c_e
     diff_c = b_out_c_e - b_out_c_g
 
-    integral_s = np.sum(np.abs(diff_s)**2) * dt
-    integral_c = np.sum(np.abs(diff_c)**2) * dt
+    # Mask for time indices within the flat drive segment
+    drive_mask = (t_eval >= pulse_start + optimal_ringup1_time + optimal_ringdown1_time) & \
+                (t_eval <= pulse_start + optimal_ringup1_time + optimal_ringdown1_time + pulse_width)
 
-    return integral_s, integral_c, b_out_s_g, b_out_s_e, b_out_c_g, b_out_c_e, diff_s, diff_c, b_in_c_vals
+    integral_s = np.sum(np.abs(diff_s[drive_mask])**2) * dt
+    integral_c = np.sum(np.abs(diff_c[drive_mask])**2) * dt
 
-def plot_optimal_clear(t_eval, envelope, b_out_e, b_out_g, diff_c, diff_s, env_filepath, b_g_filepath, b_e_filepath, diff_filepath):
+    return integral_s, integral_c, b_out_s_g, b_out_s_e, b_out_c_g, b_out_c_e, diff_s, diff_c, b_in_c_vals, a_c_g, a_c_e, a_s_g, a_s_e
 
-    # I and Q components
+def plot_optimal_clear(
+    t_eval, envelope, 
+    b_out_e, b_out_g, 
+    diff_c, diff_s,  
+    a_c_g, a_c_e, a_s_g, a_s_e, 
+    env_filepath, b_g_filepath, b_e_filepath, 
+    diff_filepath, a_c_g_filepath, a_c_e_filepath, 
+    a_s_g_filepath, a_s_e_filepath
+):
+    # Convert time to ns
+    t_ns = t_eval * 1e9
+
+    # Plot I and Q envelope
     I_t = np.real(envelope)
     Q_t = np.imag(envelope)
-
-    plt.figure(figsize=(10, 5))
-    plt.plot(t_eval * 1e9, I_t, label='I(t)', color='blue')
-    plt.plot(t_eval * 1e9, Q_t, label='Q(t)', color='orange')
-    plt.title("CLEAR Pulse — I and Q Components")
+    plt.figure(figsize=(10, 4))
+    plt.plot(t_ns, I_t, label='I(t)', color='blue')
+    plt.plot(t_ns, Q_t, label='Q(t)', color='orange')
+    plt.title("CLEAR Pulse Envelope — I and Q Components")
     plt.xlabel("Time (ns)")
-    plt.ylabel("Amplitude")
+    plt.ylabel("Amplitude (arb. units)")
     plt.legend()
-    plt.grid()
-    plt.savefig(env_filepath)
-    # plt.show()
-
-    plt.figure(figsize=(10, 5))
-    plt.plot(t_eval * 1e9, np.real(b_out_g), label='Real |g>')
-    plt.plot(t_eval * 1e9, np.imag(b_out_g), label='Imag |g>')
-    plt.xlabel("Time (ns)")
-    plt.ylabel("Amp (arb. units)")
-    plt.title("Reflected Field")
     plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(env_filepath)
+    plt.close()
+
+    # Plot reflected field for |g⟩
+    plt.figure(figsize=(10, 4))
+    plt.plot(t_ns, np.real(b_out_g), label='Real b_out |g⟩', color='blue')
+    plt.plot(t_ns, np.imag(b_out_g), label='Imag b_out |g⟩', color='cyan')
+    plt.title("Reflected Field (|g⟩)")
+    plt.xlabel("Time (ns)")
+    plt.ylabel("Amplitude (arb. units)")
     plt.legend()
+    plt.grid(True)
     plt.tight_layout()
     plt.savefig(b_g_filepath)
-    # plt.show()
+    plt.close()
 
-    plt.figure(figsize=(10, 5))
-    plt.plot(t_eval * 1e9, np.real(b_out_e), label='Real |e>')
-    plt.plot(t_eval * 1e9, np.imag(b_out_e), label='Imag |e>')
+    # Plot reflected field for |e⟩
+    plt.figure(figsize=(10, 4))
+    plt.plot(t_ns, np.real(b_out_e), label='Real b_out |e⟩', color='red')
+    plt.plot(t_ns, np.imag(b_out_e), label='Imag b_out |e⟩', color='magenta')
+    plt.title("Reflected Field (|e⟩)")
     plt.xlabel("Time (ns)")
-    plt.ylabel("Amp (arb. units)")
-    plt.title("Reflected Field")
-    plt.grid(True)
+    plt.ylabel("Amplitude (arb. units)")
     plt.legend()
+    plt.grid(True)
     plt.tight_layout()
     plt.savefig(b_e_filepath)
-    # plt.show()
+    plt.close()
 
-    plt.figure(figsize=(10, 5))
-    plt.plot(t_eval * 1e9, diff_c, label='Diff CLEAR')
-    plt.plot(t_eval * 1e9, diff_s, label='Diff Const')
+    # Plot field difference
+    plt.figure(figsize=(10, 4))
+    plt.plot(t_ns, np.abs(diff_c), label='|Diff CLEAR|', color='green')
+    plt.plot(t_ns, np.abs(diff_s), label='|Diff Square|', color='black', linestyle='--')
+    plt.title("Difference in Reflected Fields (|e⟩ - |g⟩)")
     plt.xlabel("Time (ns)")
-    plt.ylabel("Amp (arb. units)")
-    plt.title("Field difference")
-    plt.grid(True)
+    plt.ylabel("Amplitude (arb. units)")
     plt.legend()
+    plt.grid(True)
     plt.tight_layout()
     plt.savefig(diff_filepath)
-    # plt.show()
+    plt.close()
+
+    # Plot cavity field for CLEAR pulse (|g⟩ and |e⟩)
+    plt.figure(figsize=(10, 4))
+    plt.plot(t_ns, np.real(a_c_g), label='Real α_c |g⟩', color='blue')
+    plt.plot(t_ns, np.imag(a_c_g), label='Imag α_c |g⟩', color='cyan', linestyle='--')
+    plt.title("Cavity Field (CLEAR |g⟩)")
+    plt.xlabel("Time (ns)")
+    plt.ylabel("Amplitude (arb. units)")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(a_c_g_filepath)
+    plt.close()
+
+    plt.figure(figsize=(10, 4))
+    plt.plot(t_ns, np.real(a_c_e), label='Real α_c |e⟩', color='red')
+    plt.plot(t_ns, np.imag(a_c_e), label='Imag α_c |e⟩', color='magenta', linestyle='--')
+    plt.title("Cavity Field (CLEAR |e⟩)")
+    plt.xlabel("Time (ns)")
+    plt.ylabel("Amplitude (arb. units)")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(a_c_e_filepath)
+    plt.close()
+
+    # Plot cavity field for square pulse (|g⟩ and |e⟩)
+    plt.figure(figsize=(10, 4))
+    plt.plot(t_ns, np.real(a_s_g), label='Real α_s |g⟩', color='blue')
+    plt.plot(t_ns, np.imag(a_s_g), label='Imag α_s |g⟩', color='cyan', linestyle='--')
+    plt.title("Cavity Field (Square |g⟩)")
+    plt.xlabel("Time (ns)")
+    plt.ylabel("Amplitude (arb. units)")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(a_s_g_filepath)
+    plt.close()
+
+    plt.figure(figsize=(10, 4))
+    plt.plot(t_ns, np.real(a_s_e), label='Real α_s |e⟩', color='red')
+    plt.plot(t_ns, np.imag(a_s_e), label='Imag α_s |e⟩', color='magenta', linestyle='--')
+    plt.title("Cavity Field (Square |e⟩)")
+    plt.xlabel("Time (ns)")
+    plt.ylabel("Amplitude (arb. units)")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(a_s_e_filepath)
+    plt.close()
 
 def convert_numpy_types(obj):
     if isinstance(obj, dict):
