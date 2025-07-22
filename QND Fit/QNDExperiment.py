@@ -1,5 +1,5 @@
 """ """
-from config.experiment_config import FOLDER, N, FREQ, I, Q, SINGLE_SHOT
+from config.experiment_config import FOLDER, N, FREQ
 from qcore import Experiment, qua, Dataset
 from qm import qua as qm_qua
 
@@ -153,13 +153,3 @@ if __name__ == "__main__":
     expt = QNDClear(FOLDER, modes, pulses, sweeps, datasets, **parameters)
     expt.run()
     
-    
-
-
-
-
-
-
-
-
-
