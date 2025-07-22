@@ -7,26 +7,26 @@ from pathlib import Path
 
 # ----------- TO MODIFY --------------------------
 
-RR = 'rrB'  # Resonator ringdown to use
+RR = 'rrB'  
 params_filepath = str(Path.cwd()) + f"/Clear Optimisation/{RR}_SystemParam.yml"  
-use_CLEAR_pulse = True  
+use_CLEAR_pulse = True  #If false, uses square pulse instead of CLEAR pulse
 
 # ----------- PULSE PARAMS --------------------------
 
 I_ampx = 1.0
 Q_ampx = 0.0
-length = 1321.0
-pad = 87.0e-9
-ringdown1_amp = 0.0012043216652771302
-ringup1_amp = 0.057942975191611665
-ringdown1_time = 290.0e-9
-ringup1_time = 162.0e-9
+length = 1504.0
+pad = 96.0e-9
+ringdown1_amp = 0.004701537537115074
+ringup1_amp = 0.09497105824548026
+ringdown1_time = 268.0e-9
+ringup1_time = 296.0e-9
 ringdown2_amp = -0.1
-ringdown2_time = 300.0e-9
-ringup2_amp = 0.0238455556556417
-ringup2_time = 300.0e-9
-drive_amp = 0.02408642766669024
-drive_time = 269.0e-9
+ringdown2_time = 79.0e-9
+ringup2_amp = 0.09309044322892385
+ringup2_time = 262.0e-9
+drive_amp = 0.09403075073797584
+drive_time = 599.0e-9
 
 # ----------- DO NOT MODIFY BELOW --------------------------
 def round_to_4(x):
@@ -80,7 +80,6 @@ chi = evaluate_expression(params["coupling"]["chi"]) * 2 * np.pi        # Disper
 kappa = evaluate_expression(params["resonator"]["kappa"]) * 2 * np.pi       # Resonator decay rate
 phase = evaluate_expression(params["phase"]) * np.pi  # Complex phase of the input field 
 
-
 def clear_pulse(t):
     if t <= pulse_start:
         return 0.0
@@ -106,11 +105,14 @@ def cavity_dynamics(t, y, drive_fn, delta):
     return [d_alpha.real, d_alpha.imag]
 
 def solve_for_state(delta):
-    sol_clear = solve_ivp(cavity_dynamics, t_span, [0, 0], args=(clear_pulse, delta), t_eval=t_eval)
-    sol_square = solve_ivp(cavity_dynamics, t_span, [0, 0], args=(square_pulse, delta), t_eval=t_eval)
-    alpha_clear = sol_clear.y[0] + 1j * sol_clear.y[1]
-    alpha_square = sol_square.y[0] + 1j * sol_square.y[1]
-    return alpha_clear, alpha_square
+    if use_CLEAR_pulse:
+        sol_clear = solve_ivp(cavity_dynamics, t_span, [0, 0], args=(clear_pulse, delta), t_eval=t_eval)
+        alpha_clear = sol_clear.y[0] + 1j * sol_clear.y[1]
+        return alpha_clear, None
+    else:
+        sol_square = solve_ivp(cavity_dynamics, t_span, [0, 0], args=(square_pulse, delta), t_eval=t_eval)
+        alpha_square = sol_square.y[0] + 1j * sol_square.y[1]
+        return None, alpha_square
 
 sol_clear_g, sol_square_g = solve_for_state(delta=0)
 sol_clear_e, sol_square_e = solve_for_state(delta=+chi)
