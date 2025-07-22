@@ -13,16 +13,16 @@ warnings.filterwarnings("ignore")
 
 # ------------------------ MODIFIABLE PARAMS --------------------------------------
 
-NORM_FACTOR = 1.3 # I_ampx
-MAX_TRIES = 15
+NORM_FACTOR = 1.0 # I_ampx
+MAX_TRIES = 100
 CYCLE_LEN = 4
 DIVISION_LEN = 16
 
 RR = 'rrB' #rrA, rrC
 
 drives = {
-    'rrA':  0.2,
-    'rrB':  0.2,
+    'rrA':  0.08,
+    'rrB':  0.10,
     'rrC':  0.175,
     'rr':   0.65
 }
@@ -71,9 +71,18 @@ if __name__ == "__main__":
     
     params = None
     num_tries = 0
-    sep_s, sep_c, b_out_s_g, b_out_s_e, b_out_c_g, b_out_c_e, diff_s, diff_c, envelope, a_c_g, a_c_e, a_s_g, a_s_e = 0, -np.inf, None, None, None, None, None, None, None, None, None, None, None
+    cost_s, cost_c, b_out_s_g, b_out_s_e, b_out_c_g, b_out_c_e, diff_s, diff_c, envelope, a_c_g, a_c_e, a_s_g, a_s_e = 0, -np.inf, None, None, None, None, None, None, None, None, None, None, None
     CLEAR_params = None
-    
+
+    # Memory to keep track of the best params thus far to guide search
+    best_cost_so_far = 0
+    best_CLEAR_params_so_far = []
+
+    # To introduce random jumps when stagnating towards local maximum
+    stagnate_count = 0
+
+    last_cost_clear = 0
+    randomise = False
 
     # Function to evaluate expressions with variables in YAML
     def evaluate_expression(expression, variables=None):
@@ -104,19 +113,6 @@ if __name__ == "__main__":
     drive_amp = tune_drive_for_photon(drive_photons, chi, k)
     print(f"Drive amplitude to reach ⟨n⟩ ≈ {drive_photons}: {drive_amp:.4f}")
 
-    # Memory to keep track of the best params thus far to guide search
-    best_sep_so_far = 0
-    best_ringup_params_so_far = []
-    best_drive_time = []
-    best_ringdown_params_so_far = []
-    best_CLEAR_params_so_far = []
-
-    # To introduce random jumps when stagnating towards local maximum
-    stagnate_count = 0
-
-    last_integral_clear = 0
-    randomise = False
-
     while num_tries < MAX_TRIES:
 
         randomise = False
@@ -131,29 +127,29 @@ if __name__ == "__main__":
             buffer, phase, chi, k, pulse_start, drive_amp, best_CLEAR_params_so_far, randomise, MAX_DRIVE, ringup1_range, ringdown1_range, ringup2_range, ringdown2_range, drive_range
         )
         
-        sep_s, sep_c, _, b_out_s_g, b_out_s_e, b_out_c_g, b_out_c_e, diff_s, diff_c, envelope, a_c_g, a_c_e, a_s_g, a_s_e = cross_check_with_square(
-            CLEAR_params, buffer, phase, chi, k, pulse_start, drive_amp
+        cost_s, cost_c, _, b_out_s_g, b_out_s_e, b_out_c_g, b_out_c_e, diff_s, diff_c, envelope, a_c_g, a_c_e, a_s_g, a_s_e = cross_check_with_square(
+            CLEAR_params, buffer, phase, chi, k, pulse_start, drive_amp, MAX_DRIVE
         )
         
         # print("=== Optimising Results ===")
-        # print(f"square integral {sep_s}, clear integral {sep_c}")
-        # print(f"Current improvement of {(sep_c/sep_s - 1)* 100:.2f}%")
+        # print(f"square integral {cost_s}, clear integral {cost_c}")
+        # print(f"Current improvement of {(cost_c/cost_s - 1)* 100:.2f}%")
 
-        if sep_c > best_sep_so_far:
-            best_sep_so_far = sep_c
+        if cost_c > best_cost_so_far:
+            best_cost_so_far = cost_c
             best_CLEAR_params_so_far = CLEAR_params
 
-        last_integral_clear = sep_c
+        last_cost_clear = cost_c
 
-        if ((sep_c - last_integral_clear)/last_integral_clear) <= 0.05:
+        if ((cost_c - last_cost_clear)/last_cost_clear) <= 0.05:
             stagnate_count += 1
 
         num_tries += 1
 
-    # print(f"Optimisation completed with integral improvement of {(sep_c/sep_s - 1)* 100:.2f}%")
-    # print(f"Integral CLEAR: {sep_c:.8f}")
-    # print(f"Integral square: {sep_s:.8f}")
-    print(f"Best integral CLEAR: {best_sep_so_far:.8f}")
+    # print(f"Optimisation completed with integral improvement of {(cost_c/cost_s - 1)* 100:.2f}%")
+    # print(f"Integral CLEAR: {cost_c:.8f}")
+    # print(f"Integral square: {cost_s:.8f}")
+    print(f"Best integral CLEAR: {best_cost_so_far:.8f}")
     
     highest_drive = max(abs(best_CLEAR_params_so_far[2]), abs(best_CLEAR_params_so_far[3]), abs(best_CLEAR_params_so_far[6]), abs(best_CLEAR_params_so_far[7])) 
 
@@ -215,8 +211,8 @@ if __name__ == "__main__":
     best_CLEAR_params_so_far[6] = ringup2_amp
     best_CLEAR_params_so_far[7] = ringdown2_amp
 
-    sep_s, sep_c, t_eval, b_out_s_g, b_out_s_e, b_out_c_g, b_out_c_e, diff_s, diff_c, envelope, a_c_g, a_c_e, a_s_g, a_s_e = cross_check_with_square(
-        best_CLEAR_params_so_far, buffer*1e-9, phase, chi, k, pulse_start, drive_amp
+    cost_s, cost_c, t_eval, b_out_s_g, b_out_s_e, b_out_c_g, b_out_c_e, diff_s, diff_c, envelope, a_c_g, a_c_e, a_s_g, a_s_e = cross_check_with_square(
+        best_CLEAR_params_so_far, buffer*1e-9, phase, chi, k, pulse_start, drive_amp, MAX_DRIVE
     )
 
     plot_optimal_clear(t_eval* 1e9, envelope, b_out_c_e, b_out_c_g, diff_c, diff_s, a_c_g, a_c_e, a_s_g, a_s_e, env_filepath, b_out_g_filepath, b_out_e_filepath, diff_filepath, a_c_g_filepath, a_c_e_filepath, a_s_g_filepath, a_s_e_filepath)

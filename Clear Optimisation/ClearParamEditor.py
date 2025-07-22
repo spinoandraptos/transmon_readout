@@ -7,16 +7,11 @@ RR = 'rrC'
 MAX = 0.5
 MIN = -0.5
 
-# INPUT_FILE = str(Path.cwd()) + f"\\scripts\\CLEAR\\{RR}_ClearParam.txt"         # Path to your edited input file
-# OUTPUT_FILE = str(Path.cwd()) + f"\\scripts\\CLEAR\\{RR}_ClearParam2.txt"    # Where corrected params will be saved
-# MULTIPLY_TIMES = True     # Set True to multiply all *_time fields
-
-# MULTIPLY_AMPS = True
 MULTIPLY_AMPS = False
-
-INPUT_FILE = str(Path.cwd()) + f"\\scripts\\CLEAR\\{RR}_ClearParam2.txt"
-OUTPUT_FILE = INPUT_FILE
 MULTIPLY_TIMES = False     # Set True to multiply all *_time fields
+
+INPUT_FILE = str(Path.cwd()) + f"\\scripts\\CLEAR\\{RR}_ClearParam.txt"
+OUTPUT_FILE = INPUT_FILE
 
 TARGET_TOTAL_TIME = 50 * 64         # Your desired pad + length total time
 TIME_MULTIPLIER = 2     # The factor to multiply times by

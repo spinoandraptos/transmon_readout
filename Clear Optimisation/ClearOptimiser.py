@@ -8,9 +8,11 @@ from joblib import Parallel, delayed
 from pathlib import Path
 
 dev_coarse = 0.6  # for exploration
-dev_fine = 0.15   # for refinement
-sigma = 0.2
+dev_fine = 0.1   # for refinement
+sigma = 0.15
 SAMPLE_OFS = 0
+alpha_clear = 1e5
+alpha_time = 1e2
 
 def scale_clear_params(CLEAR_params, sys_params_CLEAR, MAX_DRIVE):
 
@@ -105,8 +107,6 @@ def cost_func(drive, buffer, phase, chi, k, pulse_start, drive_amp,
     t_drive = ringup1_time + ringdown1_time + pulse_width + ringdown2_time + ringup2_time
     t_total = t_drive + buffer
     dt = 1e-9 
-    alpha_clear = 1e7
-    alpha_time = 1e5
 
     # Sampling interval
     sample_interval_ns = 64  # in ns
@@ -152,10 +152,8 @@ def cost_func(drive, buffer, phase, chi, k, pulse_start, drive_amp,
     # --- CLEARING: photon amplitude near end ---
     clear_window_ns = 32  # check last 32 ns
     clear_window_steps = int(clear_window_ns * 1e-9 / dt)
-    a_g_clear = np.abs(a_g[-clear_window_steps:])
-    a_e_clear = np.abs(a_e[-clear_window_steps:])
-    clearing_g = np.mean(a_g_clear**2)
-    clearing_e = np.mean(a_e_clear**2)
+    clearing_g = np.mean(np.real(a_g[-clear_window_steps:])**2) + np.mean(np.imag(a_g[-clear_window_steps:])**2)
+    clearing_e = np.mean(np.real(a_e[-clear_window_steps:])**2) + np.mean(np.imag(a_e[-clear_window_steps:])**2)
     clearing_penalty = clearing_g + clearing_e  # penalize residual photons
 
     # --- PULSE DURATION ---
@@ -197,7 +195,7 @@ def optimise_pulse(buffer, phase, chi, k, pulse_start, drive_amp, best_params,  
 
     # Define custom ranges
     above_range = (drive_amp * 1.01, drive_amp * 40,)   # start just above drive_amp
-    below_range = (drive_amp  / 40, drive_amp * 0.99)    # start from base, end just below drive_amp
+    below_range = (drive_amp  / 20, drive_amp * 0.99)    # start from base, end just below drive_amp
 
     # Full bounds example
     bounds = [
@@ -265,36 +263,37 @@ def optimise_pulse(buffer, phase, chi, k, pulse_start, drive_amp, best_params,  
     # print(f"Best parameters: {es.result.xbest}")
     params_CLEAR = es.result.xbest
 
-    best_fitness = es.result.fbest
-
-    # Run the optimization
-    # res = es.optimize(cost_fn, n_jobs=N_jobs)
-
     # print(f"Stabilisation optimal ringup1_time: {params_CLEAR[0]/1e-9} ns, ringdown1_time {params_CLEAR[1]/1e-9} ns, ringup1_norm {params_CLEAR[2]} V, ringdown1_norm {params_CLEAR[3]}, drive_norm {sys_params_CLEAR[6]}, drive_time {params_CLEAR[8]/1e-9},  ringup2_time: {params_CLEAR[4]/1e-9} ns, ringdown2_time {params_CLEAR[5]/1e-9} ns, ringup2_norm {params_CLEAR[6]}, ringdown2_norm {params_CLEAR[7]}")
 
     return params_CLEAR
 
 
-def cross_check_with_square(params_CLEAR, buffer, phase, chi, k, pulse_start, drive_amp):
+def cross_check_with_square(params_CLEAR, buffer, phase, chi, k, pulse_start, drive_amp, MAX_DRIVE):
     
-    ringup1_amp = params_CLEAR[2]
-    ringdown1_amp = params_CLEAR[3]
-    ringup2_amp = params_CLEAR[6]
-    ringdown2_amp = params_CLEAR[7]
+    params_CLEAR_copy = params_CLEAR.copy()
+    sys_params_CLEAR = [0,0,0,0,0,0, drive_amp] 
+    scale_clear_params(params_CLEAR_copy, sys_params_CLEAR, MAX_DRIVE)
+    drive_amp = sys_params_CLEAR[6]
+
+    ringup1_amp = params_CLEAR_copy[2]
+    ringdown1_amp = params_CLEAR_copy[3]
+    ringup2_amp = params_CLEAR_copy[6]
+    ringdown2_amp = params_CLEAR_copy[7]
 
     # print(f"Cross-checking with square pulse: ringup1_amp {ringup1_amp}, ringdown1_amp {ringdown1_amp}, ringup2_amp {ringup2_amp}, ringdown2_amp {ringdown2_amp}")
 
-    optimal_ringup1_time = params_CLEAR[0]
-    optimal_ringdown1_time = params_CLEAR[1]
-    optimal_ringup2_time = params_CLEAR[4]
-    optimal_ringdown2_time = params_CLEAR[5]
-    pulse_width = params_CLEAR[8]
+    optimal_ringup1_time = params_CLEAR_copy[0]
+    optimal_ringdown1_time = params_CLEAR_copy[1]
+    optimal_ringup2_time = params_CLEAR_copy[4]
+    optimal_ringdown2_time = params_CLEAR_copy[5]
+    pulse_width = params_CLEAR_copy[8]
 
     optimal_ringup1_time = 4e-9 * round(optimal_ringup1_time / 4e-9)  # Ensure ringup time is a multiple of 4ns
     optimal_ringdown1_time = 4e-9 * round(optimal_ringdown1_time / 4e-9)  # Ensure ringdown time is a multiple of 4ns
     optimal_ringup2_time = 4e-9 * round(optimal_ringup2_time / 4e-9)  # Ensure ringup time is a multiple of 4ns
     optimal_ringdown2_time = 4e-9 * round(optimal_ringdown2_time / 4e-9)  # Ensure ringdown time is a multiple of 4
     pulse_width = 4e-9 * round(pulse_width / 4e-9)  # Ensure ringdown time is a multiple of 4
+
 
     t_drive = optimal_ringup1_time + optimal_ringdown1_time + pulse_width + optimal_ringdown2_time + optimal_ringup2_time
     t_total = t_drive + buffer
@@ -327,50 +326,34 @@ def cross_check_with_square(params_CLEAR, buffer, phase, chi, k, pulse_start, dr
     
     sample_indices = np.arange(sample_offset_steps, len(t_eval), sample_interval_steps)
 
-    def calc_cost(b_out_e, b_out_g, pulse): 
+    def calc_cost(b_out_e, b_out_g, a_g, a_e): 
                
-        # Sample arrays
+         # Sample arrays
         b_out_g_sampled = b_out_g[sample_indices]
         b_out_e_sampled = b_out_e[sample_indices]
-
-        # # Difference vector
-        # diff = b_out_e_sampled - b_out_g_sampled
-
-        # # Matched filter (unit vector in direction of diff)
-        # weights = diff / np.linalg.norm(diff)
-
-        # # Hermitian inner product projection
-        # iq_e = np.sum(np.conj(weights) * b_out_e_sampled)
-        # iq_g = np.sum(np.conj(weights) * b_out_g_sampled)
         
-        # # Calculate midpoint
-        # midpoint = (iq_e + iq_g) / 2
+        separation = np.sum(np.abs(b_out_e_sampled - b_out_g_sampled)**2)
 
-        # # Shift both points so midpoint is at zero
-        # iq_e = iq_e - midpoint
-        # iq_g = iq_g - midpoint
+        # --- CLEARING: photon amplitude near end ---
+        clear_window_ns = 32  # check last 32 ns
+        clear_window_steps = int(clear_window_ns * 1e-9 / dt)
+        clearing_g = np.mean(np.real(a_g[-clear_window_steps:])**2) + np.mean(np.imag(a_g[-clear_window_steps:])**2)
+        clearing_e = np.mean(np.real(a_e[-clear_window_steps:])**2) + np.mean(np.imag(a_e[-clear_window_steps:])**2)
+        clearing_penalty = clearing_g + clearing_e  # penalize residual photons
 
-        # plt.figure(figsize=(6,6))
-        # plt.plot(iq_e.real, iq_e.imag, 'o', label='|e⟩ (Excited)', color='red')
-        # plt.plot(iq_g.real, iq_g.imag, 'o', label='|g⟩ (Ground)', color='blue')
-        # plt.axhline(0, color='gray', lw=0.5)
-        # plt.axvline(0, color='gray', lw=0.5)
-        # plt.xlabel('I (In-phase)')
-        # plt.ylabel('Q (Quadrature)')
-        # plt.title('IQ Separation of Readout Signals')
-        # plt.legend()
-        # plt.grid(True)
-        # plt.axis('equal')  # Equal scaling for x and y axes
-        # plt.savefig(str(Path.cwd()) + f"\\{pulse}_IQ.png")
-        # plt.close()
+        # --- PULSE DURATION ---
+        duration_penalty = t_drive  # penalize longer drive pulses
+
+        # ---- Weighted Cost ----
+        cost = (
+            - separation                            # maximize separation
+            + alpha_clear * clearing_penalty        # minimize residual photons
+            + alpha_time * duration_penalty         # minimize duration
+        )
+        return -cost
         
-        # Cost: minimize their overlap
-        diff_term = np.sum(np.abs(b_out_e_sampled - b_out_g_sampled)**2)
-        cost = diff_term
-        return cost
-        
-    integral_s = calc_cost(b_out_s_e, b_out_s_g, "const")
-    integral_c= calc_cost(b_out_c_e, b_out_c_g, "CLEAR")
+    integral_s = calc_cost(b_out_s_e, b_out_s_g, a_s_g, a_s_e)
+    integral_c= calc_cost(b_out_c_e, b_out_c_g, a_c_g, a_c_e)
 
     return integral_s, integral_c, t_eval[sample_indices], b_out_s_g[sample_indices], b_out_s_e[sample_indices], b_out_c_g[sample_indices], b_out_c_e[sample_indices], diff_s[sample_indices], diff_c[sample_indices], b_in_c_vals[sample_indices], a_c_g[sample_indices], a_c_e[sample_indices], a_s_g[sample_indices], a_s_e[sample_indices]
 
@@ -386,20 +369,20 @@ def plot_optimal_clear(
     # Convert time to ns
     t_ns = t_eval
 
-    # # Plot I and Q envelope
-    # I_t = np.real(envelope)
+    # Plot I and Q envelope
+    I_t = np.real(envelope)
     # Q_t = np.imag(envelope)
-    # plt.figure(figsize=(10, 4))
-    # plt.plot(t_ns, I_t, label='I(t)', color='blue')
+    plt.figure(figsize=(10, 4))
+    plt.plot(t_ns, I_t, label='Envelope', color='blue')
     # plt.plot(t_ns, Q_t, label='Q(t)', color='orange')
-    # plt.title("CLEAR Pulse Envelope — I and Q Components")
-    # plt.xlabel("Time (ns)")
-    # plt.ylabel("Amplitude (arb. units)")
-    # plt.legend()
-    # plt.grid(True)
-    # plt.tight_layout()
-    # plt.savefig(env_filepath)
-    # plt.close()
+    plt.title("CLEAR Pulse Envelope")
+    plt.xlabel("Time (ns)")
+    plt.ylabel("Amplitude (arb. units)")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(env_filepath)
+    plt.close()
 
     # Plot reflected field for |g⟩
     plt.figure(figsize=(10, 4))
@@ -428,17 +411,17 @@ def plot_optimal_clear(
     plt.close()
 
     # Plot field difference
-    plt.figure(figsize=(10, 4))
-    plt.plot(t_ns, np.abs(diff_c), label='|Diff CLEAR|', color='green')
-    plt.plot(t_ns, np.abs(diff_s), label='|Diff Square|', color='black', linestyle='--')
-    plt.title("Difference in Reflected Fields (|e⟩ - |g⟩)")
-    plt.xlabel("Time (ns)")
-    plt.ylabel("Amplitude (arb. units)")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(env_filepath)
-    plt.close()
+    # plt.figure(figsize=(10, 4))
+    # plt.plot(t_ns, np.abs(diff_c), label='|Diff CLEAR|', color='green')
+    # plt.plot(t_ns, np.abs(diff_s), label='|Diff Square|', color='black', linestyle='--')
+    # plt.title("Difference in Reflected Fields (|e⟩ - |g⟩)")
+    # plt.xlabel("Time (ns)")
+    # plt.ylabel("Amplitude (arb. units)")
+    # plt.legend()
+    # plt.grid(True)
+    # plt.tight_layout()
+    # plt.savefig(env_filepath)
+    # plt.close()
 
     # Plot cavity field for CLEAR pulse (|g⟩ and |e⟩)
     plt.figure(figsize=(10, 4))
@@ -490,7 +473,7 @@ def plot_optimal_clear(
     plt.savefig(a_s_e_filepath)
     plt.close()
 
-    fig, ax1 = plt.subplots(figsize=(7, 5))
+    _, ax1 = plt.subplots(figsize=(7, 5))
     ax1.plot(t_ns, np.real(b_out_g), label='CLEAR R (|g⟩)', color='blue')
     ax1.plot(t_ns, np.imag(b_out_g), label='CLEAR I (|g⟩)', color='orange')
     ax1.plot(t_ns, np.real(b_out_e), label='CLEAR R (|e⟩)', color='blue', linestyle='--')
@@ -504,36 +487,36 @@ def plot_optimal_clear(
     plt.savefig(diff_filepath)
     plt.close()
     
-    # Difference vector
-    diff = b_out_e - b_out_g
+    # # Difference vector
+    # diff = b_out_e - b_out_g
 
-    # Matched filter (unit vector in direction of diff)
-    weights = diff / np.linalg.norm(diff)
+    # # Matched filter (unit vector in direction of diff)
+    # weights = diff / np.linalg.norm(diff)
 
-    # Hermitian inner product projection
-    iq_e = np.sum(np.conj(weights) * b_out_e)
-    iq_g = np.sum(np.conj(weights) * b_out_g)
+    # # Hermitian inner product projection
+    # iq_e = np.sum(np.conj(weights) * b_out_e)
+    # iq_g = np.sum(np.conj(weights) * b_out_g)
     
-    # Calculate midpoint
-    midpoint = (iq_e + iq_g) / 2
+    # # Calculate midpoint
+    # midpoint = (iq_e + iq_g) / 2
 
-    # Shift both points so midpoint is at zero
-    iq_e = iq_e - midpoint
-    iq_g = iq_g - midpoint
+    # # Shift both points so midpoint is at zero
+    # iq_e = iq_e - midpoint
+    # iq_g = iq_g - midpoint
 
-    plt.figure(figsize=(6,6))
-    plt.plot(iq_e.real, iq_e.imag, 'o', label='|e⟩ (Excited)', color='red')
-    plt.plot(iq_g.real, iq_g.imag, 'o', label='|g⟩ (Ground)', color='blue')
-    plt.axhline(0, color='gray', lw=0.5)
-    plt.axvline(0, color='gray', lw=0.5)
-    plt.xlabel('I (In-phase)')
-    plt.ylabel('Q (Quadrature)')
-    plt.title('IQ Separation of Readout Signals')
-    plt.legend()
-    plt.grid(True)
-    plt.axis('equal')  # Equal scaling for x and y axes
-    plt.savefig(str(Path.cwd()) + f"\\CLEAR_IQ.png")
-    plt.close()
+    # plt.figure(figsize=(6,6))
+    # plt.plot(iq_e.real, iq_e.imag, 'o', label='|e⟩ (Excited)', color='red')
+    # plt.plot(iq_g.real, iq_g.imag, 'o', label='|g⟩ (Ground)', color='blue')
+    # plt.axhline(0, color='gray', lw=0.5)
+    # plt.axvline(0, color='gray', lw=0.5)
+    # plt.xlabel('I (In-phase)')
+    # plt.ylabel('Q (Quadrature)')
+    # plt.title('IQ Separation of Readout Signals')
+    # plt.legend()
+    # plt.grid(True)
+    # plt.axis('equal')  # Equal scaling for x and y axes
+    # plt.savefig(str(Path.cwd()) + f"\\CLEAR_IQ.png")
+    # plt.close()
 
 def convert_numpy_types(obj):
     if isinstance(obj, dict):

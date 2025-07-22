@@ -1,6 +1,6 @@
 import re
 
-RR = 'rrB'
+RR = 'rrdummy'
 
 input_file = f"/home/spinoandraptos/Documents/CQT/Experiments/Clear Optimisation/{RR}_ClearParam.txt"
 output_file = input_file
