@@ -6,17 +6,26 @@ from scipy.signal import savgol_filter
 from scipy.signal import hilbert
 
 sample_rate = 1e9       # 1 GSa/s
-start_idx = 800         # Start time index of decay in trace
+start_idx = 1280         # Start time index of decay in trace
 
-def exp_decay(t, A, k, B):
-    return A * np.exp(-t* k / 2) + B
+rr = 'rrC'
 
-filepath = "Kappa Fitting Data/rrJon.hdf5"
+adc_idx = {
+    'rrA': 'adc3',
+    'rrB': 'adc2',
+    'rrC': 'adc',
+
+}
+
+def exp_decay(t, A, tau, B):
+    return A * np.exp(-t / tau) + B
+
+filepath = f"Kappa Fitting Data/{rr}.hdf5"
 base, _ = filepath.rsplit('.', 1)  # split at last dot
 fit_filepath = f"{base}_kappa_fit.png"
 
 with h5py.File(filepath, 'r') as f:
-    adc_raw = f["adc"]
+    adc_raw = f[adc_idx[rr]]
     adc = np.mean(adc_raw, axis=0)
     adc = adc - np.mean(adc)
     N_shots, N_samples = adc_raw.shape
@@ -25,7 +34,7 @@ with h5py.File(filepath, 'r') as f:
     analytic_signal = hilbert(adc)         # raw_trace: 1D real-valued
     envelope = np.abs(analytic_signal)  
 
-    envelope_smooth = savgol_filter(envelope, window_length=60, polyorder=5)
+    envelope_smooth = savgol_filter(envelope, window_length=50, polyorder=4)
 
     plt.figure(figsize=(10, 5))
 
@@ -43,12 +52,12 @@ with h5py.File(filepath, 'r') as f:
     A0 = env_fit[0] - env_fit[-1]
     tau0 = (t_fit[-1] - t_fit[0]) / 2
     B0 = env_fit[-1]
-    p0 = [A0, 1/tau0, B0]
+    p0 = [A0, tau0, B0]
     params, _ = curve_fit(exp_decay, t_fit, env_fit, p0=p0)
-    A_fit, k_fit, B_fit = params
+    A_fit, tau_fit, B_fit = params
 
     # Extract kappa
-    kappa = k_fit
+    kappa = 1/tau_fit * 2
     kappa_MHz = kappa / (2 * np.pi * 1e6)
 
     # Plot fit
