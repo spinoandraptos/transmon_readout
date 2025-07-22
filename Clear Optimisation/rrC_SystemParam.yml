@@ -1,0 +1,5 @@
+resonator:
+  kappa: 2.894e6
+coupling:
+  chi: 0.5e6
+phase: 0.25
