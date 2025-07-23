@@ -27,6 +27,7 @@ This toolkit supports **both Windows and Linux**.
 ```bash
 git clone https://github.com/spinoandraptos/transmon_readout.git
 cd transmon_readout
+git checkout production
 ```
 
 ### 2. Create a Virtual Environment (Recommended)
