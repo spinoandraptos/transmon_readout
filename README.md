@@ -66,7 +66,7 @@ pip install -r requirements_linux.txt
 
 ## 💡 How to Use
 
-Each folder contains a set of scripts or Jupyter notebooks specific to a task. Below is an overview:
+Each folder contains a set of scripts specific to a task. Below is an overview:
 
 ### 🔵 `Clear Optimisation/`
 - Generates an optimal CLEAR (Cavity Level Excitation and Reset) protocol pulse given system parameters.
