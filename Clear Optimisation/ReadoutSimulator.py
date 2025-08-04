@@ -33,7 +33,7 @@ class ReadoutSimulator():
         ringdown2_amp,
         kappa_int,
         kappa_ext,
-        gain,   
+        ramp,   
         chi,
         phase,
         sample_offset_ns,
@@ -61,7 +61,7 @@ class ReadoutSimulator():
         self.chi = chi * 2 * np.pi 
         self.phase = phase * np.pi
         self.pad = pad
-        self.gain = gain
+        self.ramp = ramp
         # ---------Timing Simulation----------------------
         self.pulse_start = 0.0
         self.sample_offset_ns = sample_offset_ns      
@@ -74,26 +74,64 @@ class ReadoutSimulator():
         self.sample_interval_steps = int(self.sample_interval_ns * 1e-9 / self.dt)
         self.sample_offset_steps = int(self.sample_offset_ns / self.dt)
 
-    # ---------CLEAR Pulse Generation----------------------
+    # ---------CLEAR Pulse Generation----------------------\
+    def smooth_step(self, t, t_start, t_end, rise_time):
+        return 0.5 * (np.tanh((t - t_start) / rise_time) - np.tanh((t - t_end) / rise_time))
+
     def clear_pulse(self, t):
-        if t <= self.pulse_start:
-            return 0.0
-        elif t <= self.pulse_start + self.ringup1_time:
-            return self.ringup1_amp * np.exp(1j * self.phase)
-        elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time:
-            return self.ringdown1_amp * np.exp(1j * self.phase)
-        elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time + self.drive_time:
-            return self.drive_amp * np.exp(1j * self.phase)
-        elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time + self.drive_time + self.ringdown2_time:
-            return self.ringdown2_amp * np.exp(1j * self.phase)
-        elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time + self.drive_time + self.ringdown2_time + self.ringup2_time:
-            return self.ringup2_amp * np.exp(1j * self.phase)
-        else:
-            return 0.0
+        pulse = 0.0
+
+        # Ringup1
+        pulse += self.ringup1_amp * self.smooth_step(t, self.pulse_start, self.pulse_start + self.ringup1_time, self.ramp)
+
+        # Ringdown1
+        t1 = self.pulse_start + self.ringup1_time
+        t2 = t1 + self.ringdown1_time
+        pulse += self.ringdown1_amp * self.smooth_step(t, t1, t2, self.ramp)
+
+        # Drive
+        t1 = t2
+        t2 = t1 + self.drive_time
+        pulse += self.drive_amp * self.smooth_step(t, t1, t2, self.ramp)
+
+        # Ringdown2
+        t1 = t2
+        t2 = t1 + self.ringdown2_time
+        pulse += self.ringdown2_amp * self.smooth_step(t, t1, t2, self.ramp)
+
+        # Ringup2
+        t1 = t2
+        t2 = t1 + self.ringup2_time
+        pulse += self.ringup2_amp * self.smooth_step(t, t1, t2, self.ramp)
+
+        return pulse * np.exp(1j * self.phase)
+
+
+    # def clear_pulse(self, t):
+    #     if t <= self.pulse_start:
+    #         return 0.0
+    #     elif t <= self.pulse_start + self.ringup1_time:
+    #         return self.ringup1_amp * np.exp(1j * self.phase)
+    #     elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time:
+    #         return self.ringdown1_amp * np.exp(1j * self.phase)
+    #     elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time + self.drive_time:
+    #         return self.drive_amp * np.exp(1j * self.phase)
+    #     elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time + self.drive_time + self.ringdown2_time:
+    #         return self.ringdown2_amp * np.exp(1j * self.phase)
+    #     elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time + self.drive_time + self.ringdown2_time + self.ringup2_time:
+    #         return self.ringup2_amp * np.exp(1j * self.phase)
+    #     else:
+    #         return 0.0
 
      # ---------Square Pulse Generation----------------------
     def square_pulse(self, t):
-        return self.drive_amp * np.exp(1j * self.phase) if self.pulse_start < t < self.drive_time else 0.0
+        t0 = self.pulse_start
+        t1 = self.pulse_start + self.drive_time
+        envelope = self.smooth_step(t, t0, t1, self.ramp)
+        return self.drive_amp * envelope * np.exp(1j * self.phase)
+
+    # def square_pulse(self, t):
+    #     return self.drive_amp * np.exp(1j * self.phase) if self.pulse_start < t < self.drive_time else 0.0
 
     # ---------Semiclassical Langevin Equation----------------------
     def cavity_dynamics(self, t, y, drive_fn, delta):
@@ -101,34 +139,11 @@ class ReadoutSimulator():
         d_alpha = -(1j * delta + (self.kappa_int + self.kappa_ext)/2) * alpha - np.sqrt(self.kappa_ext) * drive_fn(t)
         return [d_alpha.real, d_alpha.imag]
 
-    # def cavity_dynamics(self, t, y, drive_fn, delta, tau):
-    #     alpha = y[0] + 1j * y[1]
-    #     drive_eff_re, drive_eff_im = y[2], y[3]
-    #     drive_in = drive_fn(t)
-
-    #     # RC-like low-pass filtering of input
-    #     d_drive_eff_re = (drive_in.real - drive_eff_re) / tau
-    #     d_drive_eff_im = (drive_in.imag - drive_eff_im) / tau
-    #     drive_eff = drive_eff_re + 1j * drive_eff_im
-
-    #     d_alpha = -(1j * delta + (self.kappa_int + self.kappa_ext)/2) * alpha - np.sqrt(self.kappa_ext) * drive_eff
-
-    #     return [d_alpha.real, d_alpha.imag, d_drive_eff_re, d_drive_eff_im]
-
     # ---------Classical Integrator to solve for Alpha----------------------
     def solve_for_state(self, delta):
         sol_clear = solve_ivp(self.cavity_dynamics, self.t_span, [self.offset_r, self.offset_i], args=(self.clear_pulse, delta), t_eval=self.t_eval)
         alpha_clear = sol_clear.y[0] + 1j * sol_clear.y[1]
         return alpha_clear
-    
-    # def solve_for_state(self, delta):  
-
-    #     y0 = [self.offset_r, self.offset_i, 0.0, 0.0]  # initial α and V_eff
-    #     sol = solve_ivp(self.cavity_dynamics, self.t_span, y0,
-    #                     args=(self.clear_pulse, delta),
-    #                     t_eval=self.t_eval, method="LSODA")
-    #     alpha = sol.y[0] + 1j * sol.y[1]
-    #     return alpha
 
     # ---------Cost function used for Optimisation----------------------
     def cost(self, alpha_clear, alpha_time, factor=0.0):
@@ -147,19 +162,20 @@ class ReadoutSimulator():
         b_out_g_sampled = b_out_g[sample_indices] 
         b_out_e_sampled = b_out_e[sample_indices]
 
-        # Apply gain
-        b_out_e_sampled *= self.gain
-        b_out_g_sampled *= self.gain
-
         b_out_e_sampled /= np.sqrt(np.sum(np.abs(b_out_e_sampled)**2) + 1e-12)
         b_out_g_sampled /= np.sqrt(np.sum(np.abs(b_out_g_sampled)**2) + 1e-12)
 
         separation = np.sum(np.abs(b_out_e_sampled - b_out_g_sampled)**2)
+        # overlap = np.abs(np.vdot(b_out_e_sampled, b_out_g_sampled))  # normalized dot product
+        # fidelity = 1 - overlap**2  # 1 = max distinguishability
+
 
         # --- CLEARING: photon amplitude near end ---
-        tail = 20
+        tail = 10
         clearing_g = np.average(np.real(sol_clear_g[-tail:])**2) + np.average(np.imag(sol_clear_g[-tail:])**2)
         clearing_e = np.average(np.real(sol_clear_e[-tail:])**2) + np.average(np.imag(sol_clear_e[-tail:])**2)
+        # clearing_g = np.average(np.real(b_out_g_sampled[-tail:])**2) + np.average(np.imag(b_out_g_sampled[-tail:])**2)
+        # clearing_e = np.average(np.real(b_out_e_sampled[-tail:])**2) + np.average(np.imag(b_out_e_sampled[-tail:])**2)
         clearing_penalty = clearing_g + clearing_e  # penalize residual photons
 
         # --- PULSE DURATION ---
@@ -167,7 +183,7 @@ class ReadoutSimulator():
 
         # ---- Weighted Cost ----
         cost = (
-            - separation                            # maximize separation
+            - 10 * separation                            # maximize separation
             + alpha_clear * clearing_penalty        # minimize residual photons
             + alpha_time * duration_penalty         # minimize duration
         )
@@ -197,8 +213,8 @@ class ReadoutSimulator():
         b_out_g_sampled = b_out_g[sample_indices] 
         b_out_e_sampled = b_out_e[sample_indices]
 
-        b_out_e_sampled *= self.gain
-        b_out_g_sampled *= self.gain
+        # b_out_e_sampled *= self.gain
+        # b_out_g_sampled *= self.gain
 
         # Normalise
         b_out_e_sampled /= np.sqrt(np.sum(np.abs(b_out_e_sampled)**2) + 1e-12)

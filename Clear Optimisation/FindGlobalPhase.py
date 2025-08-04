@@ -60,15 +60,16 @@ def objective(params):
     global ref_e, ref_g
 
     # --- Extract params ---
-    phase, factor, sample_offset_ns, offset_r, offset_i, kappa_int, kappa_ext, gain = params
+    phase, factor, sample_offset_ns, offset_r, offset_i, kappa_int, kappa_ext, ramp = params
     sample_offset_ns = np.round(sample_offset_ns / 1e-9) * 1e-9  
     kappa_int *= 1e6
     kappa_ext *= 1e6
+    ramp *= 1e-9
 
     # Run simulation
     full_params = [ringup1_time, ringdown1_time, drive_time, ringup2_time, ringdown2_time,
                    ringup1_amp, ringdown1_amp, ringup2_amp, ringdown2_amp,
-                   kappa_int, kappa_ext, gain, chi, phase, 
+                   kappa_int, kappa_ext, ramp, chi, phase, 
                    sample_offset_ns, drive_amp, offset_r, offset_i, pad]
 
     RRSim = ReadoutSimulator(*full_params)
@@ -104,7 +105,7 @@ def objective(params):
 
     return cost
 
-bounds = [(0.0, 2.0), (0.0, 1.0), (0e-9, 50e-9), (-10e-4, 10e-4), (-10e-4, 10e-4), (0.0, 1.5), (0.0, 1.5), (10e-6, 10e-3)]  
+bounds = [(0.0, 2.0), (0.0, 1.0), (0e-9, 50e-9), (-10e-4, 10e-4), (-10e-4, 10e-4), (0.0, 1.5), (0.0, 1.5), (0, 100)]  
             # phase, factor, offset_ns, offset_r, offset_i, kappa_int, kappa_ext, gain, tau
 result = differential_evolution(
     objective,
@@ -122,11 +123,11 @@ result = differential_evolution(
 print(f"phase:              {result.x[0]:.2f}")
 print(f"factor:             {result.x[1]:.2f}")
 print(f"offset_ns:          {result.x[2] / 1e-9:.1f}")
-print(f"offset_re:          {result.x[3]/1e-4:.2f}e-4")
-print(f"offset_im:          {result.x[4]/1e-4:.2f}e-4")
-print(f"kappa_int:          {result.x[5]:.2f}e6")
-print(f"kappa_ext:          {result.x[6]:.2f}e6")
-print(f"gain:               {result.x[7]/1e-6:.2f}e-6")
+# print(f"offset_re:          {result.x[3]/1e-4:.2f}e-4")
+# print(f"offset_im:          {result.x[4]/1e-4:.2f}e-4")
+print(f"kappa_int:          {result.x[5]:.3f}e6")
+print(f"kappa_ext:          {result.x[6]:.3f}e6")
+print(f"ramp:               {result.x[7]:.2f}e-9")
 
 optimal_phase = result.x[0] 
 optimal_factor = result.x[1]
@@ -135,7 +136,7 @@ optimal_offset_r = result.x[3]
 optimal_offset_i = result.x[4]
 optimal_kappa_int = result.x[5] * 1e6  
 optimal_kappa_ext = result.x[6] * 1e6 
-optimal_gain = result.x[7]
+optimal_ramp = result.x[7] * 1e-9
 
 optimal_chi = chi
 
@@ -143,7 +144,7 @@ optimal_chi = chi
 full_params = [
     ringup1_time, ringdown1_time, drive_time, ringup2_time, ringdown2_time,
     ringup1_amp, ringdown1_amp, ringup2_amp, ringdown2_amp, 
-    optimal_kappa_int, optimal_kappa_ext, optimal_gain,  optimal_chi, optimal_phase, 
+    optimal_kappa_int, optimal_kappa_ext, optimal_ramp, optimal_chi, optimal_phase, 
     optimal_offset, drive_amp, optimal_offset_r, optimal_offset_i, pad
 ]
 

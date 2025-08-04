@@ -11,18 +11,19 @@ params_filepath = str(Path.cwd()) + f"/Clear Optimisation/{RR}_SystemParam.yml"
 mode = 0  #If 1, uses square pulse instead of CLEAR pulse
 
 # ----------- PULSE PARAMS --------------------------
-length = 1528.0
-pad = 72.0e-9
-ringdown1_amp = 0.01610782155575155
-ringup1_amp = 0.65
-ringdown1_time = 162.0e-9
-ringup1_time = 299.0e-9
-ringdown2_amp = -0.07065917776605385
-ringdown2_time = 269.0e-9
-ringup2_amp = 0.008256919808700327
-ringup2_time = 299.0e-9
-drive_amp = 0.01633946280938042
-drive_time = 499.0e-9
+
+length = 1061.0
+pad = 27.0e-9
+ringdown1_amp = 0.030845450564527973
+ringup1_amp = 0.3997222782200416
+ringdown1_time = 139.0e-9
+ringup1_time = 37.0e-9
+ringdown2_amp = -0.21516629230666512
+ringdown2_time = 86.0e-9
+ringup2_amp = 0.010860770682225731
+ringup2_time = 196.0e-9
+drive_amp = 0.2
+drive_time = 603.0e-9
 
 # ----------- DO NOT MODIFY BELOW --------------------------
 
@@ -44,11 +45,11 @@ kappa_ext = evaluate_expression(params["kappa_ext"])                            
 factor = evaluate_expression(params["factor"])                                          # Detuning factor (0-1)
 offset_r = evaluate_expression(params["offset_re"])                                     # Offset for real simulation envelope origin
 offset_i = evaluate_expression(params["offset_im"])                                     # Offset for imaginary simulation envelope origin
-gain = evaluate_expression(params["gain"])                                              # Gain applied to simulation output 
+ramp = evaluate_expression(params["ramp"])                                              # Smoothing ramp of pulse (nonlinear effects)
 
 full_params = [ringup1_time, ringdown1_time, drive_time, ringup2_time, ringdown2_time,
                 ringup1_amp, ringdown1_amp, ringup2_amp, ringdown2_amp,
-                kappa_int, kappa_ext, gain, chi, phase, 
+                kappa_int, kappa_ext, ramp, chi, phase, 
                 sample_offset_ns, drive_amp, offset_r, offset_i, pad]
 
 RRSim = ReadoutSimulator(*full_params)
@@ -187,15 +188,15 @@ print(f"Diff Integral: {distinguishability:.8f}")
 # plt.show()
 
 # ----------------- UNCOMMENT IF NEEDED (Print Diff Envelope) --------------------------------------------------
-# diff = env_e - env_g
-# fig, ax1 = plt.subplots(figsize=(7,3))  
-# ax1.plot(t_sampled * 1e9, np.real(diff), label='Diff (R)', color='blue')
-# ax1.plot(t_sampled * 1e9, np.imag(diff), label='Diff (I)', color='orange')
-# ax1.set_xlabel("Time (ns)")
-# ax1.set_ylabel("Envelope")
-# ax1.legend(loc='upper left')
-# ax1.grid(True)
+diff = env_e - env_g
+fig, ax1 = plt.subplots(figsize=(7,3))  
+ax1.plot(t_sampled * 1e9, np.real(diff), label='Diff (R)', color='blue')
+ax1.plot(t_sampled * 1e9, np.imag(diff), label='Diff (I)', color='orange')
+ax1.set_xlabel("Time (ns)")
+ax1.set_ylabel("Envelope")
+ax1.legend(loc='upper left')
+ax1.grid(True)
 
-# plt.suptitle("Diff Pulse")
-# plt.tight_layout()
-# plt.show()
+plt.suptitle("Diff Pulse")
+plt.tight_layout()
+plt.show()
