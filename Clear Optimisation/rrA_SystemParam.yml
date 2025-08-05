@@ -4,9 +4,9 @@ offset_im:          0.0
 
 # ---Below: Find from fitting typically---
 
-phase:              1.08
-factor:             0.77
-offset_ns:          306.4
-kappa_int:          0.606e6
-kappa_ext:          0.551e6
-ramp:               5.80e-9
+phase:              1.07
+factor:             0.78
+offset_ns:          255.6
+kappa_int:          0.402e6
+kappa_ext:          0.363e6
+ramp:               12.32e-9

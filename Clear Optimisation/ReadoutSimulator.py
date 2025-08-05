@@ -6,7 +6,7 @@ from scipy.integrate import solve_ivp
 def round_to_4(x):
     return 4e-9 * round(x / 4e-9)
 
-# Function to evaluate expressions with variables in YAML
+# ---Function to evaluate expressions with variables in YAML---
 def evaluate_expression(expression, variables=None):
     if variables:
         for var, val in variables.items():
@@ -19,119 +19,154 @@ def evaluate_expression(expression, variables=None):
         print(f"Error evaluating expression: {e} {expression}")
         return None
 
-class ReadoutSimulator():
+class ReadoutSimulator:
     def __init__(
         self,
-        ringup1_time,
-        ringdown1_time,
-        drive_time,
-        ringup2_time,
-        ringdown2_time,
-        ringup1_amp,
-        ringdown1_amp,
-        ringup2_amp,
-        ringdown2_amp,
-        kappa_int,
-        kappa_ext,
-        ramp,   
-        chi,
-        phase,
-        sample_offset_ns,
-        drive_amp,
-        offset_r = 0.0,
-        offset_i = 0.0,
-        pad = 30e-9,
+        ringup1_time: float,
+        ringdown1_time: float,
+        drive_time: float,
+        ringup2_time: float,
+        ringdown2_time: float,
+        ringup1_amp: float,
+        ringdown1_amp: float,
+        ringup2_amp: float,
+        ringdown2_amp: float,
+        kappa_int: float,
+        kappa_ext: float,
+        ramp: float,   
+        chi: float,
+        phase: float,
+        sample_offset_ns: float,
+        drive_amp: float,
+        offset_r: float = 0.0,
+        offset_i: float = 0.0,
+        pad: float = 100e-9,
     ):
         # ---------Pulse Parameters----------------------
-        self.ringup1_time = round_to_4(ringup1_time)
-        self.ringdown1_time = round_to_4(ringdown1_time)
-        self.drive_time = round_to_4(drive_time)
-        self.ringup2_time = round_to_4(ringup2_time)
-        self.ringdown2_time = round_to_4(ringdown2_time)
-        self.ringup1_amp = ringup1_amp
-        self.ringdown1_amp = ringdown1_amp
-        self.drive_amp = drive_amp
-        self.ringup2_amp = ringup2_amp
-        self.ringdown2_amp = ringdown2_amp
-        self.offset_r = offset_r
-        self.offset_i = offset_i
+        self._init_pulse_params(
+            ringup1_time, ringdown1_time, drive_time,
+            ringup2_time, ringdown2_time,
+            ringup1_amp, ringdown1_amp,
+            ringup2_amp, ringdown2_amp,
+            drive_amp, offset_r, offset_i, pad
+        )
+
         # ---------System Parameters----------------------
+        self._init_system_params(kappa_int, kappa_ext, chi, phase, ramp)
+
+        # ---------Timing Simulation----------------------
+        self._init_timing(sample_offset_ns)
+
+    def _init_pulse_params(
+        self, ru1_t, rd1_t, d_t, ru2_t, rd2_t,
+        ru1_a, rd1_a, ru2_a, rd2_a,
+        drive_amp, offset_r, offset_i, pad
+    ):
+        self.ringup1_time   = round_to_4(ru1_t)
+        self.ringdown1_time = round_to_4(rd1_t)
+        self.drive_time     = round_to_4(d_t)
+        self.ringup2_time   = round_to_4(ru2_t)
+        self.ringdown2_time = round_to_4(rd2_t)
+
+        self.ringup1_amp    = ru1_a
+        self.ringdown1_amp  = rd1_a
+        self.ringup2_amp    = ru2_a
+        self.ringdown2_amp  = rd2_a
+        self.drive_amp      = drive_amp
+
+        self.offset_r       = offset_r
+        self.offset_i       = offset_i
+        self.pad            = pad
+
+    def _init_system_params(self, kappa_int, kappa_ext, chi, phase, ramp):
         self.kappa_int = kappa_int * 2 * np.pi 
         self.kappa_ext = kappa_ext * 2 * np.pi 
-        self.chi = chi * 2 * np.pi 
-        self.phase = phase * np.pi
-        self.pad = pad
-        self.ramp = ramp
-        # ---------Timing Simulation----------------------
+        self.chi       = chi       * 2 * np.pi 
+        self.phase     = phase     * np.pi
+        self.ramp      = ramp
+
+    def _init_timing(self, sample_offset_ns):
         self.pulse_start = 0.0
-        self.sample_offset_ns = sample_offset_ns      
-        self.t_drive = ringup1_time + ringdown1_time + drive_time + ringdown2_time + ringup2_time
+        self.sample_offset_ns = sample_offset_ns
+
+        self.t_drive = (
+            self.ringup1_time +
+            self.ringdown1_time +
+            self.drive_time +
+            self.ringdown2_time +
+            self.ringup2_time
+        )
+
         self.t_total = self.t_drive + self.sample_offset_ns + self.pad
-        self.dt = 1e-9  
-        self.sample_interval_ns = 64  # Can be modified according to qcore
-        self.t_eval = np.arange(0, self.t_total, self.dt) 
-        self.t_span = (self.t_eval[0], self.t_eval[-1])      
+        self.dt = 1e-9  # 1 ns timestep
+
+        self.sample_interval_ns = 64  # For QCore or similar
+        self.t_eval = np.arange(0, self.t_total, self.dt)
+        self.t_span = (self.t_eval[0], self.t_eval[-1])
+
         self.sample_interval_steps = int(self.sample_interval_ns * 1e-9 / self.dt)
-        self.sample_offset_steps = int(self.sample_offset_ns / self.dt)
+        self.sample_offset_steps   = int(self.sample_offset_ns / self.dt)
 
     # ---------CLEAR Pulse Generation----------------------\
     def smooth_step(self, t, t_start, t_end, rise_time):
         return 0.5 * (np.tanh((t - t_start) / rise_time) - np.tanh((t - t_end) / rise_time))
 
     def clear_pulse(self, t):
-        pulse = 0.0
 
-        # Ringup1
-        pulse += self.ringup1_amp * self.smooth_step(t, self.pulse_start, self.pulse_start + self.ringup1_time, self.ramp)
+        if self.ramp > 0:
+            pulse = 0.0
 
-        # Ringdown1
-        t1 = self.pulse_start + self.ringup1_time
-        t2 = t1 + self.ringdown1_time
-        pulse += self.ringdown1_amp * self.smooth_step(t, t1, t2, self.ramp)
+            # Ringup1
+            pulse += self.ringup1_amp * self.smooth_step(t, self.pulse_start, self.pulse_start + self.ringup1_time, self.ramp)
 
-        # Drive
-        t1 = t2
-        t2 = t1 + self.drive_time
-        pulse += self.drive_amp * self.smooth_step(t, t1, t2, self.ramp)
+            # Ringdown1
+            t1 = self.pulse_start + self.ringup1_time
+            t2 = t1 + self.ringdown1_time
+            pulse += self.ringdown1_amp * self.smooth_step(t, t1, t2, self.ramp)
 
-        # Ringdown2
-        t1 = t2
-        t2 = t1 + self.ringdown2_time
-        pulse += self.ringdown2_amp * self.smooth_step(t, t1, t2, self.ramp)
+            # Drive
+            t1 = t2
+            t2 = t1 + self.drive_time
+            pulse += self.drive_amp * self.smooth_step(t, t1, t2, self.ramp)
 
-        # Ringup2
-        t1 = t2
-        t2 = t1 + self.ringup2_time
-        pulse += self.ringup2_amp * self.smooth_step(t, t1, t2, self.ramp)
+            # Ringdown2
+            t1 = t2
+            t2 = t1 + self.ringdown2_time
+            pulse += self.ringdown2_amp * self.smooth_step(t, t1, t2, self.ramp)
 
-        return pulse * np.exp(1j * self.phase)
+            # Ringup2
+            t1 = t2
+            t2 = t1 + self.ringup2_time
+            pulse += self.ringup2_amp * self.smooth_step(t, t1, t2, self.ramp)
 
-
-    # def clear_pulse(self, t):
-    #     if t <= self.pulse_start:
-    #         return 0.0
-    #     elif t <= self.pulse_start + self.ringup1_time:
-    #         return self.ringup1_amp * np.exp(1j * self.phase)
-    #     elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time:
-    #         return self.ringdown1_amp * np.exp(1j * self.phase)
-    #     elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time + self.drive_time:
-    #         return self.drive_amp * np.exp(1j * self.phase)
-    #     elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time + self.drive_time + self.ringdown2_time:
-    #         return self.ringdown2_amp * np.exp(1j * self.phase)
-    #     elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time + self.drive_time + self.ringdown2_time + self.ringup2_time:
-    #         return self.ringup2_amp * np.exp(1j * self.phase)
-    #     else:
-    #         return 0.0
+            return pulse * np.exp(1j * self.phase)
+        
+        else:
+            if t <= self.pulse_start:
+                return 0.0
+            elif t <= self.pulse_start + self.ringup1_time:
+                return self.ringup1_amp * np.exp(1j * self.phase)
+            elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time:
+                return self.ringdown1_amp * np.exp(1j * self.phase)
+            elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time + self.drive_time:
+                return self.drive_amp * np.exp(1j * self.phase)
+            elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time + self.drive_time + self.ringdown2_time:
+                return self.ringdown2_amp * np.exp(1j * self.phase)
+            elif t <= self.pulse_start + self.ringup1_time + self.ringdown1_time + self.drive_time + self.ringdown2_time + self.ringup2_time:
+                return self.ringup2_amp * np.exp(1j * self.phase)
+            else:
+                return 0.0
 
      # ---------Square Pulse Generation----------------------
     def square_pulse(self, t):
-        t0 = self.pulse_start
-        t1 = self.pulse_start + self.drive_time
-        envelope = self.smooth_step(t, t0, t1, self.ramp)
-        return self.drive_amp * envelope * np.exp(1j * self.phase)
-
-    # def square_pulse(self, t):
-    #     return self.drive_amp * np.exp(1j * self.phase) if self.pulse_start < t < self.drive_time else 0.0
+        if self.ramp > 0:
+            t0 = self.pulse_start
+            t1 = self.pulse_start + self.drive_time
+            envelope = self.smooth_step(t, t0, t1, self.ramp)
+            return self.drive_amp * envelope * np.exp(1j * self.phase)
+        
+        else:
+            return self.drive_amp * np.exp(1j * self.phase) if self.pulse_start < t < self.drive_time else 0.0
 
     # ---------Semiclassical Langevin Equation----------------------
     def cavity_dynamics(self, t, y, drive_fn, delta):
@@ -146,7 +181,7 @@ class ReadoutSimulator():
         return alpha_clear
 
     # ---------Cost function used for Optimisation----------------------
-    def cost(self, alpha_clear, alpha_time, factor=0.0):
+    def cost(self, alpha_sep, alpha_clear, alpha_time, alpha_mom, factor=0.0):
 
         sol_clear_g = self.solve_for_state(delta=-self.chi * factor)
         sol_clear_e = self.solve_for_state(delta=+self.chi * (1-factor))
@@ -166,12 +201,19 @@ class ReadoutSimulator():
         b_out_g_sampled /= np.sqrt(np.sum(np.abs(b_out_g_sampled)**2) + 1e-12)
 
         separation = np.sum(np.abs(b_out_e_sampled - b_out_g_sampled)**2)
-        # overlap = np.abs(np.vdot(b_out_e_sampled, b_out_g_sampled))  # normalized dot product
-        # fidelity = 1 - overlap**2  # 1 = max distinguishability
 
+        tail = 50
+
+        # --- STABILISING: photon momentum near end ---
+        d_alpha_g = np.gradient(sol_clear_g[-tail:], self.dt)
+        d_alpha_e = np.gradient(sol_clear_e[-tail:], self.dt)
+
+        momentum_g = np.mean(np.abs(d_alpha_g)**2)
+        momentum_e = np.mean(np.abs(d_alpha_e)**2)
+
+        momentum_penalty = momentum_g + momentum_e
 
         # --- CLEARING: photon amplitude near end ---
-        tail = 10
         clearing_g = np.average(np.real(sol_clear_g[-tail:])**2) + np.average(np.imag(sol_clear_g[-tail:])**2)
         clearing_e = np.average(np.real(sol_clear_e[-tail:])**2) + np.average(np.imag(sol_clear_e[-tail:])**2)
         # clearing_g = np.average(np.real(b_out_g_sampled[-tail:])**2) + np.average(np.imag(b_out_g_sampled[-tail:])**2)
@@ -182,11 +224,15 @@ class ReadoutSimulator():
         duration_penalty = self.t_drive  # penalize longer drive pulses
 
         # ---- Weighted Cost ----
+        # --- Separation (~1 - 1e-3), Clearing_penalty(~ e-9 - e-10), duration_penalty(~ e-8 - e-9)
         cost = (
-            - 10 * separation                            # maximize separation
+            - alpha_sep * separation                            # maximize separation
             + alpha_clear * clearing_penalty        # minimize residual photons
             + alpha_time * duration_penalty         # minimize duration
+            + alpha_mom * momentum_penalty
         )
+
+        print(momentum_penalty)
 
         return cost
     
@@ -213,9 +259,6 @@ class ReadoutSimulator():
         b_out_g_sampled = b_out_g[sample_indices] 
         b_out_e_sampled = b_out_e[sample_indices]
 
-        # b_out_e_sampled *= self.gain
-        # b_out_g_sampled *= self.gain
-
         # Normalise
         b_out_e_sampled /= np.sqrt(np.sum(np.abs(b_out_e_sampled)**2) + 1e-12)
         b_out_g_sampled /= np.sqrt(np.sum(np.abs(b_out_g_sampled)**2) + 1e-12)
@@ -230,45 +273,4 @@ class ReadoutSimulator():
             self.t_total = self.drive_time + self.sample_offset_ns + self.pad
             self.t_eval = np.arange(0, self.t_total, self.dt)
             return np.array([self.square_pulse(t) for t in self.t_eval]), self.t_eval
-        
-
-
-    # -------------------Cosine Tapered Ramping -----------------------------------------------
-
-    # def smooth_transition(self, t, t_start, duration, amp_start, amp_end, phase):
-    #     """
-    #     Smoothly interpolates between amp_start and amp_end over [t_start, t_start+duration]
-    #     without dipping below min(amp_start, amp_end).
-    #     """
-    #     if t < t_start:
-    #         return amp_start * np.exp(1j * phase)
-    #     elif t > t_start + duration:
-    #         return amp_end * np.exp(1j * phase)
-
-    #     tau = (t - t_start) / duration  # normalized time 0 to 1
-    #     s = 0.5 * (1 - np.cos(np.pi * tau))  # smooth monotonic in [0,1]
-
-    #     amp = (1 - s) * amp_start + s * amp_end
-    #     return amp * np.exp(1j * phase)
-
-
-    # def clear_pulse(self, t):
-    #     t0 = self.pulse_start
-    #     t1 = t0 + self.ringup1_time
-    #     t2 = t1 + self.ringdown1_time
-    #     t3 = t2 + self.drive_time
-    #     t4 = t3 + self.ringdown2_time
-    #     t5 = t4 + self.ringup2_time
-
-    #     if t < t0 or t > t5:
-    #         return 0.0
-    #     elif t <= t1:
-    #         return self.smooth_transition(t, t0, self.ringup1_time, 0.0, self.ringup1_amp, self.phase)
-    #     elif t <= t2:
-    #         return self.smooth_transition(t, t1, self.ringdown1_time, self.ringup1_amp, self.ringdown1_amp, self.phase)
-    #     elif t <= t3:
-    #         return self.smooth_transition(t, t2, self.drive_time, self.ringdown1_amp, self.drive_amp, self.phase)
-    #     elif t <= t4:
-    #         return self.smooth_transition(t, t3, self.ringdown2_time, self.drive_amp, self.ringdown2_amp, self.phase)
-    #     elif t <= t5:
-    #         return self.smooth_transition(t, t4, self.ringup2_time, self.ringdown2_amp, self.ringup2_amp, self.phase)
+    

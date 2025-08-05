@@ -7,12 +7,12 @@ from scipy.optimize import differential_evolution
 from ReadoutSimulator import ReadoutSimulator, evaluate_expression
 
 # ----------- Select right system params --------------------------
-RR = 'rr'  
+RR = 'rrA'  
 params_filepath = str(Path.cwd()) + f"/Clear Optimisation/{RR}_SystemParam.yml"  
 
 # Load reference envelope traces obtained from Train Weights
-ref_e = np.load("Clear Optimisation/env_e_0804_clear.npy")
-ref_g = np.load("Clear Optimisation/env_g_0804_clear.npy")
+ref_e = np.load("Clear Optimisation/env_e_rrA.npy")
+ref_g = np.load("Clear Optimisation/env_g_rrA.npy")
 
 mode = 0  # 0 for CLEAR pulse, 1 for square pulse
 
@@ -20,25 +20,26 @@ mode = 0  # 0 for CLEAR pulse, 1 for square pulse
 
 clear = ClearFormatter(
 
-    length = 1538,
-    pad = 72,
-    ringdown1_amp = 0.01610782155575155,
-    ringup1_amp = 0.65,
-    ringdown1_time = 162,
-    ringup1_time = 299,
-    ringdown2_amp = -0.07065917776605385,
-    ringdown2_time = 269,
-    ringup2_amp = 0.008256919808700327,
-    ringup2_time = 299,
-    drive_amp = 0.01633946280938042,
-    drive_time = 499
-
+                I_ampx = 1.8,
+                Q_ampx = 0,
+                length = 1276,
+                pad = 4,
+                ringdown1_amp = 0.03,
+                ringup1_amp = 0.08,
+                ringdown1_time = 20,
+                ringup1_time = 20,
+                ringdown2_amp = -0.45,
+                ringdown2_time = 47,
+                ringup2_amp = 0.04,
+                ringup2_time = 590,
+                drive_amp = 0.08,
+                drive_time = 599,
 )
 
 # ----------- FITTING PARAMS ------------------------------
 
 strategy = 'best1bin'
-maxiter = 1000
+maxiter = 300
 popsize = 30
 tol = 1e-4
 mutation = (0.7, 1.2)
@@ -112,7 +113,7 @@ def objective(params):
 
     return cost
 
-bounds = [(0.0, 2.0), (0.0, 1.0), (0e-9, 50e-9), (-10e-4, 10e-4), (-10e-4, 10e-4), (0.0, 1.5), (0.0, 1.5), (0, 100)]  
+bounds = [(0.0, 2.0), (0.0, 1.0), (0e-9, 500e-9), (-10e-4, 10e-4), (-10e-4, 10e-4), (0.0, 1.5), (0.0, 1.5), (0, 100)]  
             # phase, factor, offset_ns, offset_r, offset_i, kappa_int, kappa_ext, gain, tau
 result = differential_evolution(
     objective,

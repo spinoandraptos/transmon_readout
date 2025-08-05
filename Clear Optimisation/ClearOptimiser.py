@@ -1,4 +1,3 @@
-import re
 import yaml
 import optuna
 import numpy as np
@@ -10,13 +9,17 @@ from ReadoutSimulator import ReadoutSimulator, evaluate_expression
 
 RR = 'rr'  
 params_filepath = str(Path.cwd()) + f"/Clear Optimisation/{RR}_SystemParam.yml"  
-alpha_clear = 3e8
+
+alpha_sep = 7e2
+alpha_clear = 1e10
 alpha_time = 1e4
+alpha_mom = 1e-7
 
 # For Optuna optimisation
 N_calls = 1000
 N_jobs = 1
 random_state = None
+view_opt_history = False
 
 drives = {
     'rrA':  0.08,
@@ -34,14 +37,14 @@ drive_amp = max_drive
 
 space = [
     Real(4e-9, 100e-9, name='ringup1_time'),
-    Real(4e-9, 200e-9, name='ringdown1_time'),
+    Real(4e-9, 100e-9, name='ringdown1_time'),
     Real(4e-9, 700e-9, name='drive_time'),
-    Real(4e-9, 200e-9, name='ringup2_time'),
+    Real(4e-9, 100e-9, name='ringup2_time'),
     Real(4e-9, 100e-9, name='ringdown2_time'),
-    Real(drive_amp*1.5, drive_amp * 2, name='ringup1_amp'),
+    Real(drive_amp, drive_amp * 3, name='ringup1_amp'),
     Real(0, drive_amp, name='ringdown1_amp'),
     Real(0, drive_amp, name='ringup2_amp'),
-    Real(-drive_amp * 2, -drive_amp, name='ringdown2_amp'),
+    Real(-drive_amp * 3, -drive_amp, name='ringdown2_amp'),
 ]
 
 # ----------- DO NOT MODIFY BELOW --------------------------
@@ -97,7 +100,7 @@ def cost_function(params):
     sys_params = [kappa_int, kappa_ext, ramp, chi, phase, sample_offset_ns, drive_amp, offset_r, offset_i]
     full_params = list(CLEAR_params) + sys_params
     RRSim = ReadoutSimulator(*full_params)
-    cost = RRSim.cost(alpha_clear, alpha_time)
+    cost = RRSim.cost(alpha_sep, alpha_clear, alpha_time, alpha_mom, factor)
     return cost
 
 def objective(trial):
@@ -158,4 +161,10 @@ for k, v in formatted.items():
     print(f"    {k} = {v},")
 print("\n")
 
-optuna.visualization.plot_optimization_history(study).show()
+# Save to file
+with open(f"Clear Optimisation/{RR}_ClearParam.txt", "w") as f:
+    for k, v in formatted.items():
+        f.write(f"    {k} = {v},\n")
+
+if view_opt_history:
+    optuna.visualization.plot_optimization_history(study).show()

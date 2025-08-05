@@ -14,19 +14,21 @@ mode = 0  #If 1, uses square pulse instead of CLEAR pulse
 # ----------- PULSE PARAMS --------------------------
 
 clear = ClearFormatter(
-
-    length = 1061,
-    pad = 27,
-    ringdown1_amp = 0.030845450564527973,
-    ringup1_amp = 0.3997222782200416,
-    ringdown1_time = 139,
-    ringup1_time = 37,
-    ringdown2_amp = -0.21516629230666512,
-    ringdown2_time = 86,
-    ringup2_amp = 0.010860770682225731,
-    ringup2_time = 196,
+    
+    I_ampx = 1.0,
+    Q_ampx = 0.0,
+    length = 990,
+    pad = 34,
+    ringdown1_amp = 0.13848140331240086,
+    ringup1_amp = 0.3304698100699447,
+    ringdown1_time = 166,
+    ringup1_time = 27,
+    ringdown2_amp = -0.21508082540972154,
+    ringdown2_time = 98,
+    ringup2_amp = 0.07669750851121704,
+    ringup2_time = 193,
     drive_amp = 0.2,
-    drive_time = 603
+    drive_time = 506,
 
 )
 

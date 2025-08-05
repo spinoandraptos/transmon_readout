@@ -1,6 +1,8 @@
-chi: 1.0e6
+chi:                1.0e6
 offset_re:          0.0
 offset_im:          0.0
+
+# ---Below: Find from fitting typically---
 
 phase:              1.16
 factor:             0.62
