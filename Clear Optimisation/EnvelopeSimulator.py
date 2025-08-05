@@ -2,6 +2,7 @@ import yaml
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
+from ClearFormatter import ClearFormatter
 from ReadoutSimulator import ReadoutSimulator, evaluate_expression
 
 # ----------- TO MODIFY --------------------------
@@ -12,18 +13,22 @@ mode = 0  #If 1, uses square pulse instead of CLEAR pulse
 
 # ----------- PULSE PARAMS --------------------------
 
-length = 1061.0
-pad = 27.0e-9
-ringdown1_amp = 0.030845450564527973
-ringup1_amp = 0.3997222782200416
-ringdown1_time = 139.0e-9
-ringup1_time = 37.0e-9
-ringdown2_amp = -0.21516629230666512
-ringdown2_time = 86.0e-9
-ringup2_amp = 0.010860770682225731
-ringup2_time = 196.0e-9
-drive_amp = 0.2
-drive_time = 603.0e-9
+clear = ClearFormatter(
+
+    length = 1061,
+    pad = 27,
+    ringdown1_amp = 0.030845450564527973,
+    ringup1_amp = 0.3997222782200416,
+    ringdown1_time = 139,
+    ringup1_time = 37,
+    ringdown2_amp = -0.21516629230666512,
+    ringdown2_time = 86,
+    ringup2_amp = 0.010860770682225731,
+    ringup2_time = 196,
+    drive_amp = 0.2,
+    drive_time = 603
+
+)
 
 # ----------- DO NOT MODIFY BELOW --------------------------
 
@@ -47,10 +52,10 @@ offset_r = evaluate_expression(params["offset_re"])                             
 offset_i = evaluate_expression(params["offset_im"])                                     # Offset for imaginary simulation envelope origin
 ramp = evaluate_expression(params["ramp"])                                              # Smoothing ramp of pulse (nonlinear effects)
 
-full_params = [ringup1_time, ringdown1_time, drive_time, ringup2_time, ringdown2_time,
-                ringup1_amp, ringdown1_amp, ringup2_amp, ringdown2_amp,
+full_params = [clear.ringup1_time, clear.ringdown1_time, clear.drive_time, clear.ringup2_time, clear.ringdown2_time,
+                clear.ringup1_amp, clear.ringdown1_amp, clear.ringup2_amp, clear.ringdown2_amp,
                 kappa_int, kappa_ext, ramp, chi, phase, 
-                sample_offset_ns, drive_amp, offset_r, offset_i, pad]
+                sample_offset_ns, clear.drive_amp, offset_r, offset_i, clear.pad]
 
 RRSim = ReadoutSimulator(*full_params)
 env_e, env_g = RRSim.get_envelopes(factor, mode)

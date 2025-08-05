@@ -2,6 +2,7 @@ import yaml
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
+from ClearFormatter import ClearFormatter
 from scipy.optimize import differential_evolution
 from ReadoutSimulator import ReadoutSimulator, evaluate_expression
 
@@ -9,24 +10,30 @@ from ReadoutSimulator import ReadoutSimulator, evaluate_expression
 RR = 'rr'  
 params_filepath = str(Path.cwd()) + f"/Clear Optimisation/{RR}_SystemParam.yml"  
 
+# Load reference envelope traces obtained from Train Weights
 ref_e = np.load("Clear Optimisation/env_e_0804_clear.npy")
 ref_g = np.load("Clear Optimisation/env_g_0804_clear.npy")
+
 mode = 0  # 0 for CLEAR pulse, 1 for square pulse
 
 # ----------- PULSE PARAMS --------------------------
 
-length = 1528.0
-pad = 72.0e-9
-ringdown1_amp = 0.01610782155575155
-ringup1_amp = 0.65
-ringdown1_time = 162.0e-9
-ringup1_time = 299.0e-9
-ringdown2_amp = -0.07065917776605385
-ringdown2_time = 269.0e-9
-ringup2_amp = 0.008256919808700327
-ringup2_time = 299.0e-9
-drive_amp = 0.01633946280938042
-drive_time = 499.0e-9
+clear = ClearFormatter(
+
+    length = 1538,
+    pad = 72,
+    ringdown1_amp = 0.01610782155575155,
+    ringup1_amp = 0.65,
+    ringdown1_time = 162,
+    ringup1_time = 299,
+    ringdown2_amp = -0.07065917776605385,
+    ringdown2_time = 269,
+    ringup2_amp = 0.008256919808700327,
+    ringup2_time = 299,
+    drive_amp = 0.01633946280938042,
+    drive_time = 499
+
+)
 
 # ----------- FITTING PARAMS ------------------------------
 
@@ -67,10 +74,10 @@ def objective(params):
     ramp *= 1e-9
 
     # Run simulation
-    full_params = [ringup1_time, ringdown1_time, drive_time, ringup2_time, ringdown2_time,
-                   ringup1_amp, ringdown1_amp, ringup2_amp, ringdown2_amp,
+    full_params = [clear.ringup1_time, clear.ringdown1_time,clear.drive_time, clear.ringup2_time, clear.ringdown2_time,
+                   clear.ringup1_amp, clear.ringdown1_amp, clear.ringup2_amp, clear.ringdown2_amp,
                    kappa_int, kappa_ext, ramp, chi, phase, 
-                   sample_offset_ns, drive_amp, offset_r, offset_i, pad]
+                   sample_offset_ns, clear.drive_amp, offset_r, offset_i, clear.pad]
 
     RRSim = ReadoutSimulator(*full_params)
     env_e_scaled, env_g_scaled = RRSim.get_envelopes(factor, mode)
@@ -120,6 +127,7 @@ result = differential_evolution(
     workers=workers
 )
 
+print("\n")
 print(f"phase:              {result.x[0]:.2f}")
 print(f"factor:             {result.x[1]:.2f}")
 print(f"offset_ns:          {result.x[2] / 1e-9:.1f}")
@@ -142,10 +150,10 @@ optimal_chi = chi
 
 
 full_params = [
-    ringup1_time, ringdown1_time, drive_time, ringup2_time, ringdown2_time,
-    ringup1_amp, ringdown1_amp, ringup2_amp, ringdown2_amp, 
+    clear.ringup1_time, clear.ringdown1_time, clear.drive_time, clear.ringup2_time, clear.ringdown2_time,
+    clear.ringup1_amp, clear.ringdown1_amp, clear.ringup2_amp, clear.ringdown2_amp, 
     optimal_kappa_int, optimal_kappa_ext, optimal_ramp, optimal_chi, optimal_phase, 
-    optimal_offset, drive_amp, optimal_offset_r, optimal_offset_i, pad
+    optimal_offset, clear.drive_amp, optimal_offset_r, optimal_offset_i, clear.pad
 ]
 
 # Run simulation for plotting
