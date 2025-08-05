@@ -1,5 +1,10 @@
-resonator:
-  kappa: 0.336e6
-coupling:
-  chi: 1.05e6
-phase: 1.75
+chi: 1.0e6
+offset_re:          0.0
+offset_im:          0.0
+
+phase:              1.16
+factor:             0.62
+offset_ns:          0.0
+kappa_int:          0.174e6
+kappa_ext:          0.156e6
+ramp:               50e-9
