@@ -1,5 +1,12 @@
-resonator:
-  kappa: 0.683e6
-coupling:
-  chi: 0.08e6
-phase: 0.25
+chi:                0.08e6
+offset_re:          0.0
+offset_im:          0.0
+
+# ---Below: Find from fitting typically---
+
+phase:              1.08
+factor:             0.77
+offset_ns:          306.4
+kappa_int:          0.606e6
+kappa_ext:          0.551e6
+ramp:               5.80e-9
