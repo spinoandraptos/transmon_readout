@@ -70,17 +70,15 @@ Each folder contains a set of scripts specific to a task. Below is an overview:
 
 ### 🔵 `Clear Optimisation/`
 - Generates an optimal CLEAR (Cavity Level Excitation and Reset) protocol pulse given system parameters.
-- Goal: Maximise readout speed and fidelity by tuning multi-tone pulse parameters.
+- Goal: Maximise readout speed and fidelity by optimising multi-segment pulse parameters.
 - **Key scripts:**
-  - `ClearCalibrator.py` — Main script to run to optimize CLEAR pulse parameters given system parameters
-  - `ClearOptimiser.py` — Helper script for ClearCalibrator, need not be modified typically
-  - `EnvelopeSimulator.py` — Script for simulating the return envelope of a specified readout pulse
-  - `ClearParamEditor.py` — Helper script that can be run to ensure CLEAR pulse timings and amplitude are legal after making manual segment-based edits
-  - `ClearParamScaler.py` — Helper script that can be run to scale CLEAR pulse amplitude such that none lies above a specified threshold 
+  - `ClearFormatter.py` — Helper script for parsing pulse params using qcore syntax for simulation scripts [do not modify unless needed]
+  - `ClearOptimiser.py` — Main script to run to optimize CLEAR pulse parameters given system parameters
   - `ClearReadoutPulse.py` — Definition of CLEAR pulse in qcore
-  - `EnvelopeSimulator.py` — Script for simulating the return envelope of a specified readout pulse
-  - `EnvelopeSimulatorFormatter.py` — Script for converting the output CLEAR params from ClearCalibrator into a format that be directly copied-and-pasted into EnvelopeSimulator for visualisation
-  - `{RR}_SystemParam.yml` — Configurations of system, requires the Kappa of Readout Resonator and Chi of Qubit-Resonator coupling, as well as a drive phase (which must be calibrated through actual measurement)
+  - `EnvelopeSimulator.py` — Script for simulating the return envelope, photon number, and phase-space trajectories of a readout pulse
+  - `ReadoutSimulator.py` — Helper script that simulates the dynamics of dispersive readout [do not modify unless needed]
+  - `SysParamFinder.py` — Script for fitting the system parameters needed for high-fidelity simulation using reference envelopes from actual measurement
+  - `{RR}_SystemParam.yml` — Configurations of system, requires system parameters fitted through `SysParamFinder.py`
 
 ---
 
@@ -122,40 +120,32 @@ Each folder contains a set of scripts specific to a task. Below is an overview:
 
 ## 📈 Example Workflow
 
-1. Perform `TOF` experiment and save ADC trace
-
-2. Extract κ using:
-
+1. Extract Chi using `RRSpecChi` experiment
+2. Save Chi in `Clear Optimisation/SystemParam.yml`
+3. Choose a dummy/exisiting pulse and extract return envelope trace for both |g> and |e> using `IntegrationWeightsTraining` experiment
+4. Save pulse params and envelope traces, and fit system params using:
 ```bash
-python "Kappa Fit/KappaFit.py"
+python "Clear Optimisation/SysParamFinder.py"
 ```
-3. Extract Chi using `RRSpecChi` experiment
-
-4. Save Chi and Kappa in `Clear Optimisation/SystemParam.yml`
-5. Tune readout power using:
-
+6. Update `Clear Optimisation/SystemParam.yml` with the set of params found from fitting results
+7. Generate a CLEAR pulse with:
 ```bash
-python "Readout Power Fit/CalibratePower.py"
+python "Clear Optimisation/ClearOptimiser.py"
 ```
-6. Update max allowed power in `Clear Optimisation/CalibrateClear.py`
-7. Using a dummy pulse, or existing readout pulse, simulate the pulse envelope using `Clear Optimisation/EnvelopeSimulator.py`and compare with actual envelope obtained from measurement
-
-8. Tune drive phase - typically one of [0.25, 0.75, 1.25, 1.75] - of `Clear Optimisation/SystemParam.yml` until simulation results resemble measurement envelope
-
-9. Generate a CLEAR pulse with:
-
+8. Simulate return envelope, photon number, and phase-space trajectories of the CLEAR pulse using:
 ```bash
-python "Clear Optimisation/CalibrateClear.py"
+python "Clear Optimisation/EnvelopeSimulator.py"
 ```
-
-10. Evaluate residual photons:
+9. If CLEAR pulse is not good, modify the params search range and cost weights in `Clear Optimisation/ClearOptimiser.py` and repeat the above.
+10. Evaluate readout fidelity using `ThresholdCalculation` experiment
+11. Evaluate residual photons to verify clearing:
 
 ```bash
 python "Residual Photon Fit/ResidualPhotonExperiment.py"
 python "Residual Photon Fit/RamseyFit.py"
 ```
 
-11. Evaluate QND-ness:
+12. Evaluate QND-ness:
 
 ```bash
 python "QND Fit/QNDExperiment.py"
@@ -171,7 +161,8 @@ The dependencies are pinned in the respective requirements files. Key packages i
 - `numpy`
 - `scipy`
 - `matplotlib`
-- `cma`
+- `optuna`
+- `skopt`
 - `h5py`
 - `yaml`
 
