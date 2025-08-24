@@ -31,16 +31,16 @@ class ReadoutSimulator:
         ringdown1_amp: float,
         ringup2_amp: float,
         ringdown2_amp: float,
-        kappa_int: float,
-        kappa_ext: float,
-        ramp: float,   
+        attenuation: float,
+        kappa: float,
+        ramp: float,
         chi: float,
-        phase: float,
+        phase: float,   
         sample_offset_ns: float,
         drive_amp: float,
         offset_r: float = 0.0,
         offset_i: float = 0.0,
-        pad: float = 100e-9,
+        pad: float = 300e-9,
     ):
         # ---------Pulse Parameters----------------------
         self._init_pulse_params(
@@ -52,7 +52,7 @@ class ReadoutSimulator:
         )
 
         # ---------System Parameters----------------------
-        self._init_system_params(kappa_int, kappa_ext, chi, phase, ramp)
+        self._init_system_params(attenuation, kappa, chi, phase, ramp)
 
         # ---------Timing Simulation----------------------
         self._init_timing(sample_offset_ns)
@@ -78,9 +78,9 @@ class ReadoutSimulator:
         self.offset_i       = offset_i
         self.pad            = pad
 
-    def _init_system_params(self, kappa_int, kappa_ext, chi, phase, ramp):
-        self.kappa_int = kappa_int * 2 * np.pi 
-        self.kappa_ext = kappa_ext * 2 * np.pi 
+    def _init_system_params(self, attenuation, kappa, chi, phase, ramp):
+        self.attenuation = attenuation
+        self.kappa = kappa * 2 * np.pi 
         self.chi       = chi       * 2 * np.pi 
         self.phase     = phase     * np.pi
         self.ramp      = ramp
@@ -167,75 +167,19 @@ class ReadoutSimulator:
         
         else:
             return self.drive_amp * np.exp(1j * self.phase) if self.pulse_start < t < self.drive_time else 0.0
-
+        
     # ---------Semiclassical Langevin Equation----------------------
     def cavity_dynamics(self, t, y, drive_fn, delta):
         alpha = y[0] + 1j * y[1]
-        d_alpha = -(1j * delta + (self.kappa_int + self.kappa_ext)/2) * alpha - np.sqrt(self.kappa_ext) * drive_fn(t)
+        d_alpha = -(1j * delta + self.kappa/2) * alpha - np.sqrt(self.kappa) * drive_fn(t) 
         return [d_alpha.real, d_alpha.imag]
 
     # ---------Classical Integrator to solve for Alpha----------------------
     def solve_for_state(self, delta):
-        sol_clear = solve_ivp(self.cavity_dynamics, self.t_span, [self.offset_r, self.offset_i], args=(self.clear_pulse, delta), t_eval=self.t_eval)
+        sol_clear = solve_ivp(self.cavity_dynamics, self.t_span, [0, 0], args=(self.clear_pulse, delta), t_eval=self.t_eval, method='LSODA')
         alpha_clear = sol_clear.y[0] + 1j * sol_clear.y[1]
         return alpha_clear
 
-    # ---------Cost function used for Optimisation----------------------
-    def cost(self, alpha_sep, alpha_clear, alpha_time, alpha_mom, factor=0.0):
-
-        sol_clear_g = self.solve_for_state(delta=-self.chi * factor)
-        sol_clear_e = self.solve_for_state(delta=+self.chi * (1-factor))
-
-        b_in_vals = np.array([self.clear_pulse(t) for t in self.t_eval])
-        b_out_g = b_in_vals + np.sqrt(self.kappa_ext) * sol_clear_g
-        b_out_e = b_in_vals + np.sqrt(self.kappa_ext) * sol_clear_e
-
-        # Sampled time and b_out values following OPX
-        sample_indices = np.arange(self.sample_offset_steps, len(self.t_eval), self.sample_interval_steps)
-
-        # Sample arrays
-        b_out_g_sampled = b_out_g[sample_indices] 
-        b_out_e_sampled = b_out_e[sample_indices]
-
-        b_out_e_sampled /= np.sqrt(np.sum(np.abs(b_out_e_sampled)**2) + 1e-12)
-        b_out_g_sampled /= np.sqrt(np.sum(np.abs(b_out_g_sampled)**2) + 1e-12)
-
-        separation = np.sum(np.abs(b_out_e_sampled - b_out_g_sampled)**2)
-
-        tail = 50
-
-        # --- STABILISING: photon momentum near end ---
-        d_alpha_g = np.gradient(sol_clear_g[-tail:], self.dt)
-        d_alpha_e = np.gradient(sol_clear_e[-tail:], self.dt)
-
-        momentum_g = np.mean(np.abs(d_alpha_g)**2)
-        momentum_e = np.mean(np.abs(d_alpha_e)**2)
-
-        momentum_penalty = momentum_g + momentum_e
-
-        # --- CLEARING: photon amplitude near end ---
-        clearing_g = np.average(np.real(sol_clear_g[-tail:])**2) + np.average(np.imag(sol_clear_g[-tail:])**2)
-        clearing_e = np.average(np.real(sol_clear_e[-tail:])**2) + np.average(np.imag(sol_clear_e[-tail:])**2)
-        # clearing_g = np.average(np.real(b_out_g_sampled[-tail:])**2) + np.average(np.imag(b_out_g_sampled[-tail:])**2)
-        # clearing_e = np.average(np.real(b_out_e_sampled[-tail:])**2) + np.average(np.imag(b_out_e_sampled[-tail:])**2)
-        clearing_penalty = clearing_g + clearing_e  # penalize residual photons
-
-        # --- PULSE DURATION ---
-        duration_penalty = self.t_drive  # penalize longer drive pulses
-
-        # ---- Weighted Cost ----
-        # --- Separation (~1 - 1e-3), Clearing_penalty(~ e-9 - e-10), duration_penalty(~ e-8 - e-9)
-        cost = (
-            - alpha_sep * separation                            # maximize separation
-            + alpha_clear * clearing_penalty        # minimize residual photons
-            + alpha_time * duration_penalty         # minimize duration
-            + alpha_mom * momentum_penalty
-        )
-
-        print(momentum_penalty)
-
-        return cost
-    
     # ---------Used for parameters fitting----------------------
     def get_envelopes(self, factor=0, mode=0):
         
@@ -246,11 +190,11 @@ class ReadoutSimulator:
             self.t_eval = np.arange(0, self.t_total, self.dt) 
             b_in_vals = np.array([self.square_pulse(t) for t in self.t_eval])
 
-        sol_clear_g = self.solve_for_state(delta=+self.chi * factor)
-        sol_clear_e = self.solve_for_state(delta=-self.chi * (1-factor))
+        sol_clear_g = self.solve_for_state(delta=-self.chi * factor)
+        sol_clear_e = self.solve_for_state(delta=+self.chi * (1-factor))
 
-        b_out_g = b_in_vals + np.sqrt(self.kappa_ext) * sol_clear_g
-        b_out_e = b_in_vals + np.sqrt(self.kappa_ext) * sol_clear_e
+        b_out_g = b_in_vals + np.sqrt(self.kappa) * sol_clear_g
+        b_out_e = b_in_vals + np.sqrt(self.kappa) * sol_clear_e
 
         # Sampled time and b_out values
         sample_indices = np.arange(self.sample_offset_steps, len(self.t_eval), self.sample_interval_steps)
@@ -258,12 +202,10 @@ class ReadoutSimulator:
         # Sample arrays
         b_out_g_sampled = b_out_g[sample_indices] 
         b_out_e_sampled = b_out_e[sample_indices]
+        # sol_g_sampled = sol_clear_g[sample_indices] 
+        # sol_e_sampled = sol_clear_e[sample_indices]
 
-        # Normalise
-        b_out_e_sampled /= np.sqrt(np.sum(np.abs(b_out_e_sampled)**2) + 1e-12)
-        b_out_g_sampled /= np.sqrt(np.sum(np.abs(b_out_g_sampled)**2) + 1e-12)
-
-        return b_out_g_sampled, b_out_e_sampled
+        return self.attenuation * b_out_g_sampled, self.attenuation * b_out_e_sampled, sol_clear_g, sol_clear_e
     
     # ---------Used for plotting pulse envelope----------------------
     def get_pulse(self, mode=0):
@@ -273,4 +215,53 @@ class ReadoutSimulator:
             self.t_total = self.drive_time + self.sample_offset_ns + self.pad
             self.t_eval = np.arange(0, self.t_total, self.dt)
             return np.array([self.square_pulse(t) for t in self.t_eval]), self.t_eval
-    
+
+    # ---------Cost function used for Optimisation----------------------
+    def cost(self, alpha_sep, alpha_clear, alpha_time, factor=0.0, S_min=0.2):
+
+        # --- Solve cavity fields ---
+        sol_clear_g = self.solve_for_state(delta=-self.chi * factor)
+        sol_clear_e = self.solve_for_state(delta=+self.chi * (1 - factor))
+
+        n_g = np.abs(sol_clear_g)**2
+        n_e = np.abs(sol_clear_e)**2
+
+        # --- Output fields for separation ---
+        b_in_vals = np.array([self.clear_pulse(t) for t in self.t_eval])
+        b_out_g = b_in_vals + np.sqrt(self.kappa) * sol_clear_g
+        b_out_e = b_in_vals + np.sqrt(self.kappa) * sol_clear_e
+
+        sample_indices = np.arange(self.sample_offset_steps, len(self.t_eval), self.sample_interval_steps)
+        g_s = b_out_g[sample_indices]
+        e_s = b_out_e[sample_indices]
+
+        # Normalized separation (0..1-ish)
+        num = np.sum(np.abs(e_s - g_s)**2)
+        den = np.sum(np.abs(e_s)**2) + np.sum(np.abs(g_s)**2) + 1e-12
+        sep_norm = num / den
+
+        # --- Clearing penalty (area under photon number in last tail) ---
+        tail = 300
+        clear_g = np.trapezoid(n_g[-tail:], dx=self.dt)
+        clear_e = np.trapezoid(n_e[-tail:], dx=self.dt)
+        clearing_penalty = clear_g + clear_e
+
+        # --- Separation violation (only penalize if too small) ---
+        sep_violation = max(0.0, S_min - sep_norm)
+
+
+        print(f"Separation: {(sep_violation**2):.2e}, Clearing: {clearing_penalty:.2e}, Time: {self.t_drive*1e9:.1f} ns")
+
+        terms = {
+            "sep": (sep_violation**2),
+            "clear": clearing_penalty,
+        }
+
+        # --- Weighted cost ---
+        cost = (
+            + alpha_sep   * terms["sep"]   # maximize separation
+            + alpha_clear * terms["clear"] # minimize residual photons
+            + alpha_time  * self.t_drive   # minimize total time
+        )
+
+        return cost

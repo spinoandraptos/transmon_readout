@@ -1,11 +1,20 @@
 class ClearFormatter:
     def __init__(self, **kwargs):
+
+        self.base_amp = 0.2
+
         # Time fields that are nanoseconds and should be converted to seconds
         self.ns_time_keys = [
             'length', 'pad',
             'ringdown1_time', 'ringup1_time',
             'ringdown2_time', 'ringup2_time',
             'drive_time'
+        ]
+
+        self.amp_keys = [
+            'ringdown1_amp', 'ringup1_amp',
+            'ringdown2_amp', 'ringup2_amp',
+            'drive_amp'
         ]
 
         # First, set all attributes from kwargs (raw values)
@@ -20,6 +29,11 @@ class ClearFormatter:
             value = getattr(self, key, None)
             if value is not None:
                 setattr(self, key, float(value) * 1e-9)
+
+        for key in self.amp_keys:
+            value = getattr(self, key, None)
+            if value is not None:
+                setattr(self, key, float(value) * self.base_amp * self.I_ampx)
 
     def _fix_length_and_pad(self):
         length_ns = sum(
