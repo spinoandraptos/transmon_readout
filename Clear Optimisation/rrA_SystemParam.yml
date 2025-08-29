@@ -1,12 +1,12 @@
-chi:                0.64e6
-offset_re:          0.0
-offset_im:          0.0
+chi:               1.3e6
 
 # ---Below: Find from fitting typically---
 
-phase:              1.07
-factor:             0.78
-offset_ns:          255.6
-kappa_int:          0.402e6
-kappa_ext:          0.363e6
-ramp:               12.32e-9
+phase:              1.77
+factor:             0.16
+offset_ns:          197.5
+offset_r:           0.001e-4
+offset_i:           0.001e-4
+kappa:              0.455e6
+ramp:               20.43e-9
+attenuation:        0.1e-3
