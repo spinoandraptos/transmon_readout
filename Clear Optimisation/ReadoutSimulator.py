@@ -200,8 +200,16 @@ class ReadoutSimulator:
         sample_indices = np.arange(self.sample_offset_steps, len(self.t_eval), self.sample_interval_steps)
 
         # Sample arrays
-        b_out_g_sampled = b_out_g[sample_indices] 
+        # b_out_g_sampled = b_out_g
+        # b_out_e_sampled = b_out_e
+
+        b_out_g_sampled = b_out_g[sample_indices]
         b_out_e_sampled = b_out_e[sample_indices]
+
+        # Offset R and I
+        b_out_g_sampled = np.real(b_out_g_sampled)+self.offset_r + 1j*(np.imag(b_out_g_sampled)+self.offset_i)
+        b_out_e_sampled = np.real(b_out_e_sampled)+self.offset_r + 1j*(np.imag(b_out_e_sampled)+self.offset_i)
+
         # sol_g_sampled = sol_clear_g[sample_indices] 
         # sol_e_sampled = sol_clear_e[sample_indices]
 
@@ -217,7 +225,7 @@ class ReadoutSimulator:
             return np.array([self.square_pulse(t) for t in self.t_eval]), self.t_eval
 
     # ---------Cost function used for Optimisation----------------------
-    def cost(self, alpha_sep, alpha_clear, alpha_time, factor=0.0, S_min=0.2):
+    def cost(self, alpha_sep, alpha_clear, alpha_time, alpha_max, factor=0.0, S_min=0.2):
 
         # --- Solve cavity fields ---
         sol_clear_g = self.solve_for_state(delta=-self.chi * factor)
@@ -249,12 +257,17 @@ class ReadoutSimulator:
         # --- Separation violation (only penalize if too small) ---
         sep_violation = max(0.0, S_min - sep_norm)
 
+        max_ng = np.max(n_g)
+        max_ne = np.max(n_e)
+        max_n_penalty = max_ne + max_ng
 
-        print(f"Separation: {(sep_violation**2):.2e}, Clearing: {clearing_penalty:.2e}, Time: {self.t_drive*1e9:.1f} ns")
+        print(f"Separation: {(sep_violation**2):.2e}, Clearing: {clearing_penalty:.2e}, Max: {max_n_penalty:.2e}, Time: {self.t_drive*1e9:.1f} ns")
 
         terms = {
             "sep": (sep_violation**2),
             "clear": clearing_penalty,
+            "max_n": max_n_penalty
+
         }
 
         # --- Weighted cost ---
@@ -262,6 +275,7 @@ class ReadoutSimulator:
             + alpha_sep   * terms["sep"]   # maximize separation
             + alpha_clear * terms["clear"] # minimize residual photons
             + alpha_time  * self.t_drive   # minimize total time
+            - alpha_max * terms["max_n"]   # minimize maximum photon number
         )
 
         return cost

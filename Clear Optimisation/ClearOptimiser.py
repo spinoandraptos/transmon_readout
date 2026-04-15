@@ -4,15 +4,17 @@ import numpy as np
 from pathlib import Path
 from skopt.space import Real
 from ReadoutSimulator import ReadoutSimulator, evaluate_expression
+from optuna.samplers import CmaEsSampler
 
 # ----------- TO MODIFY --------------------------
 
 RR = 'rr'  
 params_filepath = str(Path.cwd()) + f"/Clear Optimisation/{RR}_SystemParam.yml"  
 
-alpha_sep = 2e2
-alpha_clear = 4e16
-alpha_time = 4e7
+alpha_sep = 5e4
+alpha_max = 3e9
+alpha_clear = 4e19
+alpha_time = 4e9
 S_min = 1.0  # Minimum separation
 
 # For Optuna optimisation
@@ -25,7 +27,7 @@ drives = {
     'rrA':  0.08,
     'rrB':  0.10,
     'rrC':  0.175,
-    'rr':   0.2,
+    'rr':   0.25,
     'rrFullEnjoy': 0.08,
     'rrkyoto': 0.50,
     'rrbris': 0.50,
@@ -36,15 +38,15 @@ max_drive = drives[RR]
 drive_amp = max_drive
 
 space = [
-    Real(80e-9, 800e-9, name='ringup1_time'),
-    Real(4e-9, 800e-9, name='ringdown1_time'),
-    Real(4e-9, 800e-9, name='drive_time'),
-    Real(4e-9, 800e-9, name='ringup2_time'),
-    Real(80e-9, 800e-9, name='ringdown2_time'),
-    Real(drive_amp , drive_amp * 5, name='ringup1_amp'),
-    Real(0, drive_amp, name='ringdown1_amp'),
-    Real(0, drive_amp, name='ringup2_amp'),
-    Real(-drive_amp * 5, 0, name='ringdown2_amp'),
+    Real(100e-9, 800e-9, name='ringup1_time'),
+    Real(40e-9, 800e-9, name='ringdown1_time'),
+    Real(40e-9, 800e-9, name='drive_time'),
+    Real(40e-9, 800e-9, name='ringup2_time'),
+    Real(100e-9, 800e-9, name='ringdown2_time'),
+    Real(drive_amp*1.1 , drive_amp * 2, name='ringup1_amp'),
+    Real(0, drive_amp*0.9, name='ringdown1_amp'),
+    Real(0, drive_amp*0.9, name='ringup2_amp'),
+    Real(-drive_amp * 2, -drive_amp*1.1, name='ringdown2_amp'),
 ]
 
 # ----------- DO NOT MODIFY BELOW --------------------------
@@ -100,10 +102,25 @@ def cost_function(params):
     sys_params = [attenuation, kappa, ramp, chi, phase, sample_offset_ns, drive_amp, offset_r, offset_i]
     full_params = list(CLEAR_params) + sys_params
     RRSim = ReadoutSimulator(*full_params)
-    cost = RRSim.cost(alpha_sep, alpha_clear, alpha_time, factor, S_min)
+    cost = RRSim.cost(alpha_sep, alpha_clear, alpha_time, alpha_max, factor, S_min)
     return cost
 
 def objective(trial):
+    # p = {
+    #     'ringup1_time': trial.suggest_float('ringup1_time', 20e-9, 200e-9, step=1e-9),
+    #     'ringdown1_time': trial.suggest_float('ringdown1_time', 20e-9, 200e-9, step=1e-9),
+    #     'drive_time': trial.suggest_float('drive_time', 100e-9, 800e-9, step=1e-9),
+    #     'ringup2_time': trial.suggest_float('ringup2_time', 20e-9, 200e-9, step=1e-9),
+    #     'ringdown2_time': trial.suggest_float('ringdown2_time', 20e-9, 200e-9, step=1e-9),
+        
+    #     'ringup1_amp': trial.suggest_float('ringup1_amp', drive_amp*1.1, drive_amp*2.0),
+    #     'ringdown1_amp': trial.suggest_float('ringdown1_amp', 0, drive_amp*0.9),
+    #     'ringup2_amp': trial.suggest_float('ringup2_amp', 0, drive_amp*0.9),
+    #     'ringdown2_amp': trial.suggest_float('ringdown2_amp', -drive_amp*2.0, -drive_amp*1.1),
+    # }
+    
+    # params_list = list(p.values())
+    # return cost_function(params_list)
     params = []
     for dim in space:
         low, high, name = dim.low, dim.high, dim.name
@@ -128,7 +145,7 @@ def objective(trial):
 
 study = optuna.create_study(
     direction="minimize",
-    sampler=optuna.samplers.TPESampler(seed=random_state)  # TPE is default
+    sampler=optuna.samplers.CmaEsSampler(seed=random_state)  # TPE is default
 )
 
 study.optimize(objective, n_trials=N_calls, n_jobs=N_jobs)
