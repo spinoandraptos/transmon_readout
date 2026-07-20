@@ -11,8 +11,8 @@ RR = 'rr'
 params_filepath = str(Path.cwd()) + f"/Clear Optimisation/{RR}_SystemParam.yml"  
 
 # Load reference envelope traces obtained from Train Weights
-ref_e = np.load("Clear Optimisation/env_e_clara3.npy")
-ref_g = np.load("Clear Optimisation/env_g_clara3.npy")
+ref_e = np.load("Clear Optimisation/env_e_celine.npy")
+ref_g = np.load("Clear Optimisation/env_g_celine.npy")
 
 mode = 1  # 0 for CLEAR pulse, 1 for square pulse
 
@@ -20,9 +20,9 @@ mode = 1  # 0 for CLEAR pulse, 1 for square pulse
 
 clear = ClearFormatter(
     Q_ampx = 0.0,
-length=25*64,  # 2000,
-    I_ampx=1,  # 0.08,
-    pad=9*64,
+length=1500-28,  # 2000,
+    I_ampx=0.3,  # 0.08,
+    pad=1000-28,
     ringdown1_amp = 0.0,
     ringup1_amp = 0,
     ringdown1_time = 0,
@@ -32,7 +32,7 @@ length=25*64,  # 2000,
     ringup2_amp = 0.0,
     ringup2_time = 0,
     drive_amp = 0.25,
-    drive_time = 16*64,
+    drive_time = 500,
 )
 
 # ----------- FITTING PARAMS ------------------------------
@@ -47,6 +47,7 @@ disp = True
 workers = 10
 
 # ----------- DO NOT MODIFY BELOW --------------------------
+# ----------- DO NOT MODIFY BELOW --------------------------
 dt = 64e-9
 
 # Load the YAML file
@@ -56,9 +57,12 @@ with open(f"{params_filepath}", "r") as file:
 if params is None:
     raise ValueError("No parameters found in the YAML file.")
 
-# Extract parameters from YAML
-chi = evaluate_expression(params["chi"])               # Dispersive shift
-# kappa = evaluate_expression(params["kappa"]) * 2 * np.pi         # Resonator decay rate
+# Extract parameters from YAML (chi is now a *starting guess*, not fixed)
+chi_guess = evaluate_expression(params["chi"])   # Dispersive shift, used only to center the search window
+
+# How far to let chi wander from the YAML guess (tune this to your system)
+CHI_SEARCH_WINDOW = 0.5 * abs(chi_guess)   # e.g. +/- 50% of the nominal value
+chi_bounds = (chi_guess - CHI_SEARCH_WINDOW, chi_guess + CHI_SEARCH_WINDOW)
 
 def complex_corr(a, b):
     return np.abs(np.vdot(a, b)) / (np.linalg.norm(a) * np.linalg.norm(b))
@@ -67,37 +71,43 @@ def objective(params):
     global ref_e, ref_g
 
     # --- Extract params ---
-    phase, factor, sample_offset_ns, offset_r, offset_i, kappa, ramp, attenuation = params
-    sample_offset_ns = np.round(sample_offset_ns / 1e-9) * 1e-9  
+    phase, factor, sample_offset_ns, offset_r, offset_i, kappa, ramp, attenuation, chi = params
+    sample_offset_ns = np.round(sample_offset_ns / 1e-9) * 1e-9
     kappa *= 1e6
     ramp *= 1e-9
 
     # Run simulation
-    full_params = [clear.ringup1_time, clear.ringdown1_time,clear.drive_time, clear.ringup2_time, clear.ringdown2_time,
+    full_params = [clear.ringup1_time, clear.ringdown1_time, clear.drive_time, clear.ringup2_time, clear.ringdown2_time,
                    clear.ringup1_amp, clear.ringdown1_amp, clear.ringup2_amp, clear.ringdown2_amp,
-                   attenuation, kappa, ramp, chi, phase, 
+                   attenuation, kappa, ramp, chi, phase,
                    sample_offset_ns, clear.drive_amp, offset_r, offset_i, clear.pad]
 
     RRSim = ReadoutSimulator(*full_params)
     env_g_scaled, env_e_scaled, _, _ = RRSim.get_envelopes(factor, mode)
 
-    # Truncate to match reference length
     L = min(len(env_e_scaled), len(ref_e))
     env_e_scaled = env_e_scaled[:L]
     env_g_scaled = env_g_scaled[:L]
     ref_e_local = ref_e[:L]
     ref_g_local = ref_g[:L]
 
-    # Compute NMSE (already normalized so mostly for small mismatches)
     nmse_e = np.mean(np.abs(env_e_scaled - ref_e_local)**2)
     nmse_g = np.mean(np.abs(env_g_scaled - ref_g_local)**2)
 
-    cost = nmse_e + nmse_g
+    return nmse_e + nmse_g
 
-    return cost
+bounds = [
+    (0.0, 2.0),      # phase
+    (0.0, 1.0),      # factor
+    (0e-9, 500e-9),  # offset_ns
+    (-10e-5, 10e-5), # offset_r
+    (-10e-5, 10e-5), # offset_i
+    (0.0, 1.5),      # kappa
+    (0, 100),        # ramp
+    (0.0, 1.0),      # attenuation
+    chi_bounds,      # chi  <-- now free
+]
 
-bounds = [(0.0, 2.0), (0.0, 1.0), (0e-9, 500e-9), (-10e-5, 10e-5), (-10e-5, 10e-5), (0.0, 1.5), (0, 100), (0.0, 1.0)]  
-            # phase, factor, offset_ns, offset_r, offset_i, kappa, ramp, attenuation
 result = differential_evolution(
     objective,
     bounds,
@@ -120,23 +130,22 @@ print(f"offset_i:           {result.x[4]*1e2:.5f}e-6")
 print(f"kappa:          {result.x[5]:.5f}e6")
 print(f"ramp:               {result.x[6]:.5f}e-9")
 print(f"attenuation:        {result.x[7] / 1e-3:.5f}e-3")
+print(f"chi (fit):          {result.x[8]:.6g}   (YAML guess was {chi_guess:.6g})")
 
-optimal_phase = result.x[0] 
+optimal_phase = result.x[0]
 optimal_factor = result.x[1]
-optimal_offset = np.round(result.x[2]/1e-9) * 1e-9 
+optimal_offset = np.round(result.x[2]/1e-9) * 1e-9
 optimal_offset_r = result.x[3]
 optimal_offset_i = result.x[4]
-optimal_kappa = result.x[5] * 1e6  
+optimal_kappa = result.x[5] * 1e6
 optimal_ramp = result.x[6] * 1e-9
 optimal_attenuation = result.x[7]
-
-optimal_chi = chi
-
+optimal_chi = result.x[8]     # <-- fitted, not YAML
 
 full_params = [
     clear.ringup1_time, clear.ringdown1_time, clear.drive_time, clear.ringup2_time, clear.ringdown2_time,
-    clear.ringup1_amp, clear.ringdown1_amp, clear.ringup2_amp, clear.ringdown2_amp, 
-    optimal_attenuation, optimal_kappa, optimal_ramp, optimal_chi, optimal_phase, 
+    clear.ringup1_amp, clear.ringdown1_amp, clear.ringup2_amp, clear.ringdown2_amp,
+    optimal_attenuation, optimal_kappa, optimal_ramp, optimal_chi, optimal_phase,
     optimal_offset, clear.drive_amp, optimal_offset_r, optimal_offset_i, clear.pad
 ]
 

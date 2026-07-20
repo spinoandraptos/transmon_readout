@@ -13,8 +13,8 @@ params_filepath = str(Path.cwd()) + f"/Clear Optimisation/{RR}_SystemParam.yml"
 
 alpha_sep = 5e4
 alpha_max = 3e9
-alpha_clear = 4e19
-alpha_time = 4e9
+alpha_clear = 6e19
+alpha_time = 29.7e9
 S_min = 1.0  # Minimum separation
 
 # For Optuna optimisation
@@ -27,7 +27,7 @@ drives = {
     'rrA':  0.08,
     'rrB':  0.10,
     'rrC':  0.175,
-    'rr':   0.25,
+    'rr':   0.3,
     'rrFullEnjoy': 0.08,
     'rrkyoto': 0.50,
     'rrbris': 0.50,
